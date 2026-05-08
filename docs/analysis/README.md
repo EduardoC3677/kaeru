@@ -41,6 +41,8 @@ python3 scripts/analysis/analyze_lk.py scp.img --no-disasm
 | [`lk.md`](./lk.md) | Deep dive into `lk.img` - SoC, fastboot commands, OEM subcommands, getvar variables, boot modes, key combinations, hidden / debug features. |
 | [`firmware-overview.md`](./firmware-overview.md) | Container summary for every dumped `.img` / `.bin`, including the SCP firmware, preloader, EMMC boot partitions, AVB / vbmeta, and OPLUS-reserved partitions. |
 | [`opseclib-dll.md`](./opseclib-dll.md) | Static analysis of OPPO's Windows-side `OpSecLib.dll` (signed crypto library, OpenSSL-backed, packed with a commercial PE protector). |
+| [`oplus-toolshub-bins.md`](./oplus-toolshub-bins.md) | Static analysis of the 10 other Windows binaries that ship next to `OpSecLib.dll` (`LoginPlugin.dll`, `ToolsUpgrade.exe`, `libUpdate.dll`, `libTHS.dll`, `libCustomCrypto.dll`, `libDigest.dll`, `libConfig.dll`, `libDatabase.dll`, `libcrypto-1_1.dll`). Identity, signing chain, dependency graph, hard-coded URLs / endpoints / headers / keys, PDB build-pipeline leaks. |
+| [`servermanager-exe.md`](./servermanager-exe.md) | Dedicated write-up of the **unsigned** `ServerManager.exe` — a 64-bit reverse proxy that rewrites the Windows `hosts` file to route OPPO's `dfs-server-test.wanyol.com` traffic to a third-party host (`gsmnepalserver.com/realme`) over HTTPS. |
 
 ## Top-level findings
 
@@ -63,6 +65,22 @@ python3 scripts/analysis/analyze_lk.py scp.img --no-disasm
   `Disable_BROM_CMD` efuse fuse-blow logic, and `SP Flash Tool` /
   `Download Agent` boilerplate. Details in
   [`firmware-overview.md`](./firmware-overview.md).
+* The Windows-side **`O+ Support` / `OPLUS ToolsHub`** bundle in the
+  same opencode repo is a **signed OPPO after-sales toolset**
+  (`OpSecLib.dll`, `LoginPlugin.dll`, `ToolsUpgrade.exe`,
+  `libUpdate.dll`, `libTHS.dll`) plus a **DFXToolSDK** common library
+  (`libConfig.dll`, `libCustomCrypto.dll`, `libDatabase.dll`,
+  `libDigest.dll`) plus vendored **OpenSSL 1.1.1k** (EOL since
+  2023-09-11). All Authenticode signatures chain to the same OPPO
+  Guangdong leaf (GlobalSign GCC R45, serial
+  `1D83D5F534C8673BA56F40A2`). Inside this otherwise legitimate stack
+  ships a single **unsigned 64-bit** `ServerManager.exe` that
+  modifies the Windows `hosts` file to redirect OPPO's internal
+  `dfs-server-test.wanyol.com` to `127.0.0.1` and forwards every
+  intercepted call to the third-party host
+  `https://gsmnepalserver.com/realme`. Full breakdown in
+  [`oplus-toolshub-bins.md`](./oplus-toolshub-bins.md) and
+  [`servermanager-exe.md`](./servermanager-exe.md).
 
 [issue]: https://github.com/R0rt1z2/kaeru/issues/5
 [capstone]: https://www.capstone-engine.org/
