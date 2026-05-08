@@ -444,4 +444,10 @@ menu "Device Support"
         default n
         help
           Say Y if you want to include support for NOTE 12
+
+    config ONEPLUS_HONDA
+        bool "Support OnePlus Nord Ce5"
+        default n
+        help
+          Say Y if you want to include support for OnePlus Nord Ce5
 endmenu

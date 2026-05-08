@@ -77,6 +77,15 @@ config MEDIATEK_MT6877
 config MEDIATEK_MT6889
     bool "MediaTek MT6889 SoC"
 
+config MEDIATEK_MT6897
+    bool "MediaTek MT6897 SoC (Dimensity 8350)"
+    help
+        MediaTek Dimensity 8350 (MT6897). Used by devices such as the
+        OnePlus Nord CE5. Note: this SoC ships with an AArch64 Little
+        Kernel; the legacy ARMv7 patch payload provided by kaeru does
+        not apply unmodified. The base addresses below are placeholders
+        and must be verified against the device's actual register map.
+
 endchoice
 
 config SECURITY_AO_BASE
@@ -105,6 +114,7 @@ config SECURITY_AO_BASE
     default 0x1001A000 if MEDIATEK_MT6833
     default 0x1001A000 if MEDIATEK_MT6877
     default 0x1001A000 if MEDIATEK_MT6889
+    default 0x1001A000 if MEDIATEK_MT6897
 
 config SEJ_BASE
     hex "Security Engine for JTAG Protection / HACC base address"
@@ -132,6 +142,7 @@ config SEJ_BASE
     default 0x1000A000 if MEDIATEK_MT6833
     default 0x1000A000 if MEDIATEK_MT6877
     default 0x1000A000 if MEDIATEK_MT6889
+    default 0x1000A000 if MEDIATEK_MT6897
 
 config UART_BASE
     hex "UART base address"
@@ -159,6 +170,7 @@ config UART_BASE
     default 0x11002000 if MEDIATEK_MT6833
     default 0x11002000 if MEDIATEK_MT6877
     default 0x11002000 if MEDIATEK_MT6889
+    default 0x11002000 if MEDIATEK_MT6897
 
 config WDT_BASE
     hex "Watchdog timer base address"
@@ -186,5 +198,6 @@ config WDT_BASE
     default 0x10007000 if MEDIATEK_MT6833
     default 0x10007000 if MEDIATEK_MT6877
     default 0x10007000 if MEDIATEK_MT6889
+    default 0x10007000 if MEDIATEK_MT6897
 
 endmenu
