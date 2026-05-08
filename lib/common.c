@@ -14,6 +14,19 @@
 
 const char* get_mode_string(unsigned int mode) {
 #ifndef CONFIG_EXCLUDE_BRANDING
+#ifdef CONFIG_KAERU_ARM64
+    unsigned int el;
+    asm volatile("mrs %0, currentel" : "=r"(el));
+    el = (el >> 2) & 0x3;
+    (void)mode;
+    switch (el) {
+        case 0: return "EL0 (User)";
+        case 1: return "EL1 (Kernel/LK)";
+        case 2: return "EL2 (Hypervisor)";
+        case 3: return "EL3 (Secure Monitor)";
+        default: return "Unknown EL";
+    }
+#else
     switch (mode) {
         case 0x10:
             return "User Mode (PL0)";
@@ -36,6 +49,7 @@ const char* get_mode_string(unsigned int mode) {
         default:
             return "Unknown Mode";
     }
+#endif
 #else
     (void)mode;
     return "Unknown Mode";
@@ -73,14 +87,17 @@ void cmdline_replace(char *cmdline, const char *param,
 
 void print_kaeru_info(int (*out)(const char *, ...)) {
 #ifndef CONFIG_EXCLUDE_BRANDING
-    unsigned int sp, lr, pe, vbar;
+    uintptr_t sp, lr, vbar;
+    unsigned int pe;
 
     READ_SP(sp);
     READ_LR(lr);
     READ_CPSR(pe);
     READ_VBAR(vbar);
 
+#ifndef CONFIG_KAERU_ARM64
     pe &= 0x1F;
+#endif
 
     out(" _                         \n"
         "| | ____ _  ___ _ __ _   _ \n"
@@ -98,9 +115,15 @@ void print_kaeru_info(int (*out)(const char *, ...)) {
     out(" THIS IS A FREE TOOL. IF YOU PAID FOR IT, YOU HAVE BEEN SCAMMED.\n");
     out(" THIS TOOL IS PROVIDED AS-IS WITHOUT WARRANTY OF ANY KIND.\n");
     out(" USE AT YOUR OWN RISK.\n\n");
-    out(" Vector Base  (VBAR): 0x%08x\n", vbar);
-    out(" Stack Pointer  (SP): 0x%08x\n", sp);
-    out(" Link Register  (LR): 0x%08x\n", lr);
+#ifdef CONFIG_KAERU_ARM64
+    out(" Vector Base  (VBAR): 0x%016lx\n", (unsigned long)vbar);
+    out(" Stack Pointer  (SP): 0x%016lx\n", (unsigned long)sp);
+    out(" Link Register  (LR): 0x%016lx\n", (unsigned long)lr);
+#else
+    out(" Vector Base  (VBAR): 0x%08x\n", (unsigned int)vbar);
+    out(" Stack Pointer  (SP): 0x%08x\n", (unsigned int)sp);
+    out(" Link Register  (LR): 0x%08x\n", (unsigned int)lr);
+#endif
     out(" Processor Mode (PE): %s\n", get_mode_string(pe));
     out("********************************************************************\n\n");
 #else

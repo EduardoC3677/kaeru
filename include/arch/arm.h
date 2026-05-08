@@ -5,6 +5,10 @@
 
 #pragma once
 
+#ifdef CONFIG_KAERU_ARM64
+#include <arch/arm64.h>
+#else
+
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -187,3 +191,5 @@ typedef enum { TARGET_THUMB, TARGET_ARM } arm_mode_t;
             p[i] = 0xE320F000;                                \
         arch_sync_cache_range((uint32_t)(addr), (count) * 4); \
     } while (0)
+
+#endif /* CONFIG_KAERU_ARM64 */

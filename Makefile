@@ -19,6 +19,15 @@ export KAERU_DEBUG
 ARCH ?= arm
 MAKEFLAGS += -rR --no-print-directory
 
+ifeq ($(ARCH),arm64)
+SRCARCH := arm64
+DEFAULT_CROSS_COMPILE := aarch64-linux-gnu-
+else
+SRCARCH := $(ARCH)
+DEFAULT_CROSS_COMPILE := arm-linux-gnueabihf-
+endif
+export SRCARCH
+
 # To put more focus on warnings, be less verbose as default
 # Use 'make V=1' to see the full commands
 
@@ -106,7 +115,7 @@ VPATH		:= $(srctree)
 
 export srctree objtree VPATH
 
-CROSS_COMPILE ?= arm-linux-gnueabihf-
+CROSS_COMPILE ?= $(DEFAULT_CROSS_COMPILE)
 
 KCONFIG_CONFIG	?= .config
 export KCONFIG_CONFIG
@@ -197,16 +206,33 @@ LINUXINCLUDE    := -Iinclude \
 
 KBUILD_CPPFLAGS := -D__KERNEL__
 
-KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
+KBUILD_CFLAGS_COMMON := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common \
 		   -fno-stack-protector \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
 		   -fno-builtin -fno-lto -nostdlib \
-		   -std=gnu99 -Os -mthumb  \
+		   -std=gnu99 -Os \
 		   -fno-delete-null-pointer-checks \
-		   -Wno-builtin-declaration-mismatch -fPIE -Wno-main -nostdlib \
-		   -mcpu=cortex-a15
+		   -Wno-builtin-declaration-mismatch -Wno-main -nostdlib -fPIE
+
+ifeq ($(ARCH),arm64)
+KBUILD_CFLAGS_ARCH := -mcpu=cortex-a55+nocrypto \
+		      -mbranch-protection=none \
+		      -mcmodel=small \
+		      -DNANOPRINTF_USE_FIELD_WIDTH_FORMAT_SPECIFIERS=1 \
+		      -DNANOPRINTF_USE_PRECISION_FORMAT_SPECIFIERS=1 \
+		      -DNANOPRINTF_USE_FLOAT_FORMAT_SPECIFIERS=0 \
+		      -DNANOPRINTF_USE_LARGE_FORMAT_SPECIFIERS=1 \
+		      -DNANOPRINTF_USE_SMALL_FORMAT_SPECIFIERS=1 \
+		      -DNANOPRINTF_USE_BINARY_FORMAT_SPECIFIERS=0 \
+		      -DNANOPRINTF_USE_WRITEBACK_FORMAT_SPECIFIERS=0 \
+		      -DNANOPRINTF_USE_ALT_FORM_FLAG=1
+else
+KBUILD_CFLAGS_ARCH := -mthumb -mcpu=cortex-a15
+endif
+
+KBUILD_CFLAGS := $(KBUILD_CFLAGS_COMMON) $(KBUILD_CFLAGS_ARCH)
 KBUILD_CFLAGS += -DKAERU_VERSION=\"$(KAERU_VERSION)\" -DKAERU_DEBUG=$(KAERU_DEBUG)
 KBUILD_CFLAGS += $(foreach var,$(filter CONFIG_%,$(.VARIABLES)),-D$(var)=$($(var)))
 KBUILD_AFLAGS_KERNEL :=

@@ -1,3 +1,62 @@
+#ifdef CONFIG_KAERU_ARM64
+
+.section .text.start, "ax"
+.global main
+.type main, %function
+main:
+    stp     x29, x30, [sp, #-32]!
+    mov     x29, sp
+    stp     x19, x20, [sp, #16]
+
+    adr     x0, .Lreloc_anchor
+    ldr     x1, =.Lreloc_anchor
+    sub     x19, x0, x1
+
+    ldr     x0, =__got_start
+    ldr     x1, =__got_end
+    add     x0, x0, x19
+    add     x1, x1, x19
+
+.Lreloc_loop:
+    cmp     x0, x1
+    b.ge    .Lreloc_done
+    ldr     x2, [x0]
+    cbz     x2, .Lreloc_skip
+    add     x2, x2, x19
+    str     x2, [x0]
+.Lreloc_skip:
+    add     x0, x0, #8
+    b       .Lreloc_loop
+
+.Lreloc_done:
+    cbz     x19, .Lbss_clear
+    ldr     x0, =__got_start
+    ldr     x1, =__got_end
+    add     x0, x0, x19
+    sub     x1, x1, x0
+    bl      arch_clean_invalidate_cache_range
+
+.Lbss_clear:
+    ldr     x0, =__bss_start
+    ldr     x1, =__bss_end
+    sub     x2, x1, x0
+    mov     x1, #0
+    bl      memset
+
+    bl      kaeru_early_init
+
+    ldp     x19, x20, [sp, #16]
+    ldp     x29, x30, [sp], #32
+    ret
+
+    .align 3
+.Lreloc_anchor:
+    .quad   0
+
+.section .note.GNU-stack, "", %progbits
+
+#else /* !CONFIG_KAERU_ARM64 */
+
 .syntax unified
 .thumb
 
@@ -50,3 +109,5 @@ main:
 1:  .word 0
 
 .section .note.GNU-stack, "", %progbits
+
+#endif /* CONFIG_KAERU_ARM64 */
