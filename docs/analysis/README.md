@@ -40,6 +40,7 @@ python3 scripts/analysis/analyze_lk.py scp.img --no-disasm
 | --- | --- |
 | [`lk.md`](./lk.md) | Deep dive into `lk.img` - SoC, fastboot commands, OEM subcommands, getvar variables, boot modes, key combinations, hidden / debug features. |
 | [`firmware-overview.md`](./firmware-overview.md) | Container summary for every dumped `.img` / `.bin`, including the SCP firmware, preloader, EMMC boot partitions, AVB / vbmeta, and OPLUS-reserved partitions. |
+| [`opseclib-dll.md`](./opseclib-dll.md) | Static analysis of OPPO's Windows-side `OpSecLib.dll` (signed crypto library, OpenSSL-backed, packed with a commercial PE protector). |
 
 ## Top-level findings
 
