@@ -103,6 +103,8 @@ modules.order
 #
 # We don't want to ignore the following even if they are dot-files
 #
+!.github
+!.github/
 !.clang-format
 !.clippy.toml
 !.cocciconfig
