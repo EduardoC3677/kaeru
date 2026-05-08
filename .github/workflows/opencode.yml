@@ -75,7 +75,13 @@ jobs:
           
 
       - name: Install repo dependencies (optional)
-        run: npm install --no-audit --no-fund 
+        run: npm install --no-audit --no-fund
+
+      - name: Install kaeru dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install gcc-arm-linux-gnueabihf python3 python3-pip git make
+          pip3 install -r utils/requirements.txt
         
       - name: Normalize model name
         id: normalize_model
