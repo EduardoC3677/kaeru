@@ -19,10 +19,10 @@
 #define LK_START ((LK_BASE) & ~0xFFF)
 #define LK_END ((LK_START) + LK_SIZE)
 
-#define WRITE8(addr, value)                                     \
-    do {                                                        \
-        *(volatile uint8_t*)(addr) = (uint8_t)(value);          \
-        arch_clean_invalidate_cache_range((uint32_t)(addr), 1); \
+#define WRITE8(addr, value)                                       \
+    do {                                                          \
+        *(volatile uint8_t*)(addr) = (uint8_t)(value);            \
+        arch_clean_invalidate_cache_range((uintptr_t)(addr), 1);  \
     } while (0)
 
 #define READ8(addr) (*(volatile uint8_t*)(addr))
@@ -33,10 +33,10 @@
 
 #define MASK8(addr, mask, value) WRITE8(addr, (READ8(addr) & ~(mask)) | (value))
 
-#define WRITE16(addr, value)                                    \
-    do {                                                        \
-        *(volatile uint16_t*)(addr) = (uint16_t)(value);        \
-        arch_clean_invalidate_cache_range((uint32_t)(addr), 2); \
+#define WRITE16(addr, value)                                      \
+    do {                                                          \
+        *(volatile uint16_t*)(addr) = (uint16_t)(value);          \
+        arch_clean_invalidate_cache_range((uintptr_t)(addr), 2);  \
     } while (0)
 
 #define READ16(addr) (*(volatile uint16_t*)(addr))
@@ -47,10 +47,10 @@
 
 #define MASK16(addr, mask, value) WRITE16(addr, (READ16(addr) & ~(mask)) | (value))
 
-#define WRITE32(addr, value)                                    \
-    do {                                                        \
-        *(volatile uint32_t*)(addr) = (uint32_t)(value);        \
-        arch_clean_invalidate_cache_range((uint32_t)(addr), 4); \
+#define WRITE32(addr, value)                                      \
+    do {                                                          \
+        *(volatile uint32_t*)(addr) = (uint32_t)(value);          \
+        arch_clean_invalidate_cache_range((uintptr_t)(addr), 4);  \
     } while (0)
 
 #define READ32(addr) (*(volatile uint32_t*)(addr))

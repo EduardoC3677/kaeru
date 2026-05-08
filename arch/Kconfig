@@ -1,9 +1,33 @@
 menu "Architecture"
-	config CACHE_LINE
-		int "The CPU cache line"
-        default 64
-		help
-		  Size of a CPU cache line in bytes. Used for cache
-		  maintenance operations. Common values are 32 for
-		  Cortex-A7/A9 and 64 for Cortex-A15/A53/A55.
+
+choice
+	prompt "Target architecture"
+	default KAERU_ARM
+
+config KAERU_ARM
+	bool "ARMv7-A (Thumb-2 LK)"
+	help
+	  Build kaeru for 32-bit ARMv7 Little Kernel images.
+	  This is the original kaeru target. Select it for any
+	  MediaTek SoC up through the Helio G99 / Dimensity 700
+	  generation that ships a Thumb-2 LK.
+
+config KAERU_ARM64
+	bool "AArch64 (ARMv8 LK)"
+	help
+	  Build kaeru for 64-bit AArch64 Little Kernel images.
+	  Required for modern MediaTek SoCs (Dimensity 8xxx and
+	  newer) that ship a 64-bit LK at EL1. Selecting this
+	  enables the AArch64 patch primitives and the AArch64
+	  start-up code in arch/arm64/.
+
+endchoice
+
+config CACHE_LINE
+	int "The CPU cache line"
+	default 64
+	help
+	  Size of a CPU cache line in bytes. Used for cache
+	  maintenance operations. Common values are 32 for
+	  Cortex-A7/A9 and 64 for Cortex-A15/A53/A55/A78.
 endmenu

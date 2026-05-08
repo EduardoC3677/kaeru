@@ -7,50 +7,57 @@
 #include <board_ops.h>
 #include <main/main.h>
 
+#ifdef CONFIG_KAERU_ARM64
+typedef uint64_t lk_app_ptr_t;
+#define LK_PTR_STEP   8
+#define LK_APP_TARGET(fn)  ((lk_app_ptr_t)(uintptr_t)(fn))
+#else
+typedef uint32_t lk_app_ptr_t;
+#define LK_PTR_STEP   4
+#define LK_APP_TARGET(fn)  ((lk_app_ptr_t)(uintptr_t)(fn) | 1)
+#endif
+
 void kaeru_late_init(void) {
     OPTIONAL_INIT(sej_init);
     OPTIONAL_INIT(framebuffer_init);
 
     board_late_init();
 
+#ifdef CONFIG_KAERU_ARM64
+    ((void (*)(const struct app_descriptor*))(uintptr_t)CONFIG_APP_ADDRESS)(NULL);
+#else
     ((void (*)(const struct app_descriptor*))(CONFIG_APP_ADDRESS | 1))(NULL);
+#endif
 }
 
-// If support for stage1 is enabled, we are now running in the heap
-// and we were called by the previous stage.
-//
-// If support for stage1 is disabled, then we are essentially being
-// called from the original bl platform_init() call.
-//
-// Regardless of the caller, we want to patch the '.apps' entry in
-// the rodata section of the bootloader to point to our late init
-// function, so that we can take control before mt_boot_init() runs.
 void kaeru_early_init(void) {
-    uint32_t search_val = CONFIG_APP_ADDRESS | 1;
-    uint32_t start = CONFIG_BOOTLOADER_BASE;
-    uint32_t end = CONFIG_BOOTLOADER_BASE + CONFIG_BOOTLOADER_SIZE;
-    uint32_t ptr_addr = 0;
+    lk_app_ptr_t search_val = LK_APP_TARGET(CONFIG_APP_ADDRESS);
+    uintptr_t start = CONFIG_BOOTLOADER_BASE;
+    uintptr_t end = (uintptr_t)CONFIG_BOOTLOADER_BASE + CONFIG_BOOTLOADER_SIZE;
+    uintptr_t ptr_addr = 0;
 
     print_kaeru_info(printf);
     common_early_init();
     board_early_init();
 
-    for (uint32_t addr = start; addr < end; addr += 4) {
-        if (*(volatile uint32_t*)addr == search_val) {
+    for (uintptr_t addr = start; addr < end; addr += LK_PTR_STEP) {
+        if (*(volatile lk_app_ptr_t*)addr == search_val) {
             ptr_addr = addr;
             break;
         }
     }
 
     if (ptr_addr != 0) {
-        *(volatile uint32_t*)ptr_addr = (uint32_t)kaeru_late_init | 1;
-        arch_clean_cache_range(ptr_addr, 4);
+        *(volatile lk_app_ptr_t*)ptr_addr = LK_APP_TARGET(kaeru_late_init);
+        arch_clean_cache_range(ptr_addr, LK_PTR_STEP);
     } else {
-        // Not a critical failure, since the device should still boot
-        // but I'm sure users will appreciate some feedback about it.
         printf("Failed to patch mt_init_boot() pointer\n");
         printf("kaeru won't be able to run its late init!\n");
     }
 
+#ifdef CONFIG_KAERU_ARM64
+    ((void (*)(void))(uintptr_t)CONFIG_PLATFORM_INIT_ADDRESS)();
+#else
     ((void (*)(void))(CONFIG_PLATFORM_INIT_ADDRESS | 1))();
+#endif
 }

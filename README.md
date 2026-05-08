@@ -1,7 +1,7 @@
 # 🐸 かえる
 **Language:** [日本語](./README_ja-JP.md)
 
-This repository contains an ARMv7 payload that provides arbitrary code execution on MediaTek bootloaders (LK).
+This repository contains an ARMv7 / AArch64 payload that provides arbitrary code execution on MediaTek bootloaders (LK).
 
 ## Overview
 >[!CAUTION]
@@ -10,7 +10,8 @@ This repository contains an ARMv7 payload that provides arbitrary code execution
 Given a bootloader image, this tool will output a patched version that can be flashed to the device. The patched image will contain a custom payload that allows you to run arbitrary code during the boot process.
 
 Things to keep in mind:
-- This payload is designed for devices using an **ARMv7** Little Kernel (LK) as their bootloader.
+- The original payload targets **ARMv7 / Thumb-2** Little Kernel images. Modern MediaTek SoCs (Dimensity 8xxx and newer) ship an **AArch64** LK; for those select `CONFIG_KAERU_ARM64=y` in your defconfig and build with `make ARCH=arm64`. The AArch64 build pulls in the patch primitives in `include/arch/arm64.h` and the start-up code in `arch/arm64/`.
+- For chained MTK images that bundle several GFH-wrapped sub-images (preloader + multiple LK stages + certs), use [`utils/parse_aarch64.py`](utils/parse_aarch64.py) to enumerate the chain, classify each sub-image, and locate the fastboot stage before generating a defconfig. See [`RE_NOTES.md`](RE_NOTES.md) for the analysis methodology applied to the OnePlus Nord CE5 (`honda` / MT6897).
 - Offsets and addresses are specific to the device and bootloader version. You may need to adjust them for your specific device and bootloader version.
 
 The following list showcases the most common use cases for `kaeru`:

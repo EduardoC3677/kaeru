@@ -79,12 +79,16 @@ config MEDIATEK_MT6889
 
 config MEDIATEK_MT6897
     bool "MediaTek MT6897 SoC (Dimensity 8350)"
+    select KAERU_ARM64
     help
         MediaTek Dimensity 8350 (MT6897). Used by devices such as the
-        OnePlus Nord CE5. Note: this SoC ships with an AArch64 Little
-        Kernel; the legacy ARMv7 patch payload provided by kaeru does
-        not apply unmodified. The base addresses below are placeholders
-        and must be verified against the device's actual register map.
+        OnePlus Nord CE5. The factory bootloader on this SoC is an
+        AArch64 Little Kernel - selecting this entry implicitly
+        switches the kaeru build to ARCH=arm64 (KAERU_ARM64).
+        The base addresses below are inherited from the legacy
+        MediaTek register-map and MUST be verified against the
+        Dimensity 8350 reference manual / device DTS before any
+        register access is wired in board-honda.c.
 
 endchoice
 
