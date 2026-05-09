@@ -1,1 +1,0 @@
-obj-y += mtk_wdt.o

@@ -1,92 +1,101 @@
-# 🐸 かえる
-**Language:** [日本語](./README_ja-JP.md)
+# kaeru-mtk
 
-This repository contains an ARMv7 payload that provides arbitrary code execution on MediaTek bootloaders (LK).
+Open-source MediaTek BROM/DA flasher for OnePlus / OPPO devices, Windows-first, Python.
 
-## Overview
->[!CAUTION]
-> If you don't know what you're doing, **you can brick your device**. This is not a beginner's project. Please **[READ THE DOCUMENTATION](https://github.com/R0rt1z2/kaeru/wiki)** carefully and understand the implications of modifying your bootloader.
+This is a clean-room re-implementation of the on-the-wire protocol used by
+OPPO's proprietary `OPlusFlashTool` / `ToolsHub` against MediaTek-based phones.
+It is intended for **security research, recovery from soft-bricks, and
+bootloader-unlock workflows** that the vendor refuses to support officially.
 
-Given a bootloader image, this tool will output a patched version that can be flashed to the device. The patched image will contain a custom payload that allows you to run arbitrary code during the boot process.
+## Features
 
-Things to keep in mind:
-- This payload is designed for devices using an **ARMv7** Little Kernel (LK) as their bootloader.
-- Offsets and addresses are specific to the device and bootloader version. You may need to adjust them for your specific device and bootloader version.
+- BROM handshake + identification (`hwcode`, `target_config`, `ME-ID`, `SoC-ID`).
+- Auto-selection of the correct `auth_sv5.auth` file based on the connected
+  device's `hwcode`, using **15 auth files bundled with the package** under
+  [`src/kaeru_mtk/data/auth/`](src/kaeru_mtk/data/auth/) covering
+  MT6763/65/69/71/79, MT6833/53/73/77/85/89/93.
+- The four RSA-2048 SLA public keys extracted from `SLA_Challenge.dll` are
+  hardcoded under [`src/kaeru_mtk/data/sla_keys.py`](src/kaeru_mtk/data/sla_keys.py).
+  At connection time the auth modulus is matched against this set and the
+  resulting `SlaKey` is attached to the session so `kaeru-mtk info` can show
+  which embedded OPlus key your device authenticates against. Key #1 is shared
+  by **seven** SoCs (MT6763, MT6833, MT6853, MT6873, MT6877, MT6885, MT6889).
+- BROM exploits for SLA/DAA bypass:
+  - `kamakiri` — classic USB control-transfer overflow for armv7 SoCs
+    (MT6763 .. MT6785).
+  - `kamakiri2` — USBDL overflow targeting the AArch64 BROM
+    (Dimensity 700–1300; MT6833/53/73/77/85/89/93).
+  - `hashimoto` — DMA-engine BROM dump primitive (armv7 only).
+  - `carbonara` — alternative entry vector for SLA-required AArch64 chips.
+  - `iguana` — direct WRITE32 patch of the BROM AC dispatch table; targets
+    Dimensity 8100 / 8200 / 9000 / 9200 / 9300 (MT6895 / MT6896 / MT6983 /
+    MT6985 / MT6897), where the older overflow primitives have been patched.
+- DA v5 + DA v6 framing, including BROM-side `JUMP_DA64` for AArch64.
+- Windows-first transport: `pyusb` + `libusb-package` + WinUSB, with a
+  `kaeru-mtk driver install` helper that downloads Zadig and walks you through
+  binding WinUSB to the MTK BROM endpoint.
+- Partition dump / readback-all / flash partition / flash scatter / flash OFP /
+  bootloader unlock / `diag imei`, all with `--dry-run` and explicit
+  destructive-action confirmation flags.
 
-The following list showcases the most common use cases for `kaeru`:
-- **Advanced debugging**: Use the payload to debug the boot process of your device by hooking into the bootloader's functions and variables.
-- **Custom fastboot commands**: Add your own fastboot commands to the bootloader.
-- **Remap button combinations**: You can set up custom boot modes and key combinations to enter different modes (e.g., recovery, fastboot, etc.).
-- **Remove bootloader warnings**: Remove the "unlocked bootloader" warning that appears when the device is booted with an unlocked bootloader.
+## Install
 
-<small>__... and much more!__</small>
+```bash
+pip install -e .[dev]
+```
 
-## Wiki
+## CLI
 
-An elaborate wiki with multiple guides and notes has been provided to help you understand how kaeru works. Please refer to it to learn how to build, add support for a new device, and more:
-1. [Table of contents](https://github.com/R0rt1z2/kaeru/wiki)
-2. [Introduction](https://github.com/R0rt1z2/kaeru/wiki/Introduction)
-3. [Can I use kaeru on my device?](https://github.com/R0rt1z2/kaeru/wiki/Can-I-use-kaeru-on-my-device%3F)
-4. [Porting kaeru to a new device](https://github.com/R0rt1z2/kaeru/wiki/Porting-kaeru-to-a-new-device)
-5. [Customization and kaeru APIs](https://github.com/R0rt1z2/kaeru/wiki/Customization-and-kaeru-APIs)
+```bash
+kaeru-mtk --help
+kaeru-mtk driver install                # Windows: download Zadig + bind WinUSB
+kaeru-mtk detect                        # enumerate BROM devices
+kaeru-mtk info                          # bundled auth + SLA key match auto-loaded
+kaeru-mtk exploit list                  # show known exploits & per-SoC recipe
+kaeru-mtk exploit run --dry-run         # auto-select exploit by hwcode
+kaeru-mtk exploit run --exploit iguana --soc MT6897
+kaeru-mtk dump --partition oplusreserve1 --out reserve1.bin --da DA.bin
+kaeru-mtk readback-all --out-dir backup/ --exclude-sensitive
+kaeru-mtk unlock-bl --confirm-unlock
+```
+
+`info`, `dump`, `readback-all`, `flash *`, `unlock-bl`, `erase`, `diag imei`
+all auto-pick the bundled auth file matching the connected SoC. Pass
+`--auth-dir <path>` to override with a user-provided MTKResource directory
+(takes precedence over the bundled set).
+
+## Layout
+
+```
+src/kaeru_mtk/
+├── data/
+│   ├── auth/                  15 bundled auth_sv5.auth files
+│   ├── sla_keys.py            4 RSA-2048 SLA public keys + SoC->key map
+│   └── soc_db.py              23 SoC entries (hwcode, arch, da_version, exploits)
+├── transport/                 USB (pyusb + WinUSB) + MockTransport for tests
+├── protocol/
+│   ├── brom.py                BROM handshake + opcodes (READ32, WRITE32, SEND_DA, JUMP_DA{,64}, SLA, …)
+│   ├── da_v5.py               DA-Legacy framing
+│   ├── da_v6.py               DA xflash framing
+│   ├── sla.py                 SLA challenge-response
+│   └── exploits/              kamakiri, kamakiri2, hashimoto, carbonara, iguana
+├── formats/                   scatter / auth_sv5 / DA blob / OFP / OPS
+├── oneplus/                   auth resolver, unlock flow, readback list
+├── driver/                    Windows Zadig + PnpDevice helpers
+├── commands/                  CLI subcommands
+└── cli.py                     argparse front-end
+```
+
+## Safety
+
+Destructive actions (`flash partition`, `flash scatter`, `unlock-bl`, `erase`)
+require explicit confirmation flags (`--i-know-what-im-doing`,
+`--confirm-brick-risk`, `--confirm-unlock`, `--allow-dangerous`). `--dry-run`
+is available everywhere a write would happen.
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
-
-Key points to be aware of:
-
-* You are free to use, modify, and distribute the software.
-* If you modify and use the software publicly, you must release your source code.
-* You must retain the same license (`AGPL-3.0`) when redistributing modified versions.
-* You cannot keep modifications private if the software is used to provide a networked service.
-
-For full details, please refer to the [LICENSE](https://github.com/R0rt1z2/kaeru/tree/master/LICENSE) file.
-
-### Copyright & Developers
-
-- **© 2023–2026 [KAERU Labs, S.L.](https://kaeru.cat/)**
-- Developed by:
-    - Roger Ortiz ([`@R0rt1z2`](https://github.com/R0rt1z2)) ([me@r0rt1z2.com](mailto:me@r0rt1z2.com))
-    - Mateo De la Hoz ([`@AntiEngineer`](https://github.com/AntiEngineer)) ([me@antiengineer.com](mailto:me@antiengineer.com))
-    - Shomy ([`@shomykohai`](https://github.com/shomykohai)) ([git@itssho.my](mailto:git@itssho.my))
-
-## Acknowledgments
-
-### Linux
-Some of the Makefile and build-related scripts were adapted from the [`Linux` kernel](https://github.com/torvalds/linux) source code.
-
-`Linux` which is licensed under the [GNU General Public License v2](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html).
-
-> © The Linux Foundation and contributors.  
-
-> <small>_Original source: https://github.com/torvalds/linux_</small>
-
-### nanoprintf
-This project includes [`nanoprintf`](https://github.com/charlesnicholson/nanoprintf), a minimal implementation of `printf`-style formatting designed for embedded systems.
-
-`nanoprintf` is dual-licensed under the [Unlicense](http://unlicense.org) and the [Zero-Clause BSD (0BSD)](https://opensource.org/licenses/0BSD). 
-
-> © 2019 Charles Nicholson.
-
-> <small>_Original source: https://github.com/charlesnicholson/nanoprintf_</small>
-
-### libsej
-This project includes [`libsej`](https://github.com/shomykohai/mtk-payloads/tree/main/libsej), a library for interacting with MediaTek's Security Engine (SEJ/HACC) hardware.
-
-`libsej` is licensed under the [GNU General Public License v3](https://www.gnu.org/licenses/gpl-3.0.en.html).
-
-> © 2024 B.Kerler, 2025 Shomy.
-
-<small>_Original source: https://github.com/shomykohai/mtk-payloads/tree/main/libsej_</small>
-
-## Disclaimer
-
-This software is provided **"as is"** without any warranty of any kind, express or implied. By using this tool, you acknowledge that:
-
-* Modifying the bootloader or flashing modified images carries **a high risk of permanently damaging your device** (bricking).
-* You are solely responsible for any consequences resulting from the use, misuse, or inability to use this software.
-* The maintainers and contributors of this project are **not liable for any damage**, data loss, device malfunction, or legal issues that may arise.
-* This project is intended for **educational and research purposes only**. It is **not intended for illegal or unauthorized use**.
-
-Proceed only if you fully understand the risks and implications.
+Apache-2.0. The bundled auth files are mirrored from the public
+`EduardoC3677/opencode` repository for reproducibility of the analysis; the
+RSA-2048 moduli are public keys recovered from `SLA_Challenge.dll` via static
+analysis. No private key material is contained in this repository.

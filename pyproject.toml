@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kaeru-mtk"
+version = "0.1.0"
+description = "Open-source MediaTek BROM/DA flasher for OnePlus / OPPO devices (Windows-first, Python)"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "kaeru contributors" }]
+requires-python = ">=3.9"
+keywords = ["mediatek", "mtk", "brom", "da", "flasher", "oneplus", "oppo", "fastboot", "winusb"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Hardware",
+]
+dependencies = [
+    "pyusb>=1.2.1",
+    "libusb-package>=1.0.26",
+    "cryptography>=41.0",
+    "pycryptodomex>=3.19",
+    "colorama>=0.4.6",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+windows = [
+    "pywin32>=306; sys_platform == 'win32'",
+]
+dev = [
+    "pytest>=7",
+    "pytest-cov>=4",
+    "ruff>=0.4",
+    "mypy>=1.8",
+]
+
+[project.scripts]
+kaeru-mtk = "kaeru_mtk.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/EduardoC3677/kaeru"
+Issues = "https://github.com/EduardoC3677/kaeru/issues"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"kaeru_mtk" = ["py.typed", "data/auth/*.auth", "data/*.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
