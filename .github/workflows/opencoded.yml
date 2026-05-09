@@ -17,7 +17,7 @@ on:
       model:
         description: Model to run with OpenCode
         required: false
-        default: deepseek/DeepSeek-V4-Flash
+        default: deepseek/deepseek-v4-flash
         type: string
 
 concurrency:
@@ -58,7 +58,7 @@ jobs:
       AZURE_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY || secrets.AZURE_API_KEY }}
       AZURE_RESOURCE_NAME: ${{ secrets.AZURE_FOUNDRY_RESOURCE_NAME || secrets.AZURE_RESOURCE_NAME }}
       ANTHROPIC_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY || secrets.AZURE_API_KEY }}
-      RAW_MODEL: ${{ github.event.inputs.model || vars.OPENCODE_MODEL || 'deepseek/DeepSeek-V4-Flash' }}
+      RAW_MODEL: ${{ github.event.inputs.model || vars.OPENCODE_MODEL || 'deepseek/deepseek-v4-flash' }}
       GITHUB_TOKEN: ${{ github.token }}
 
     steps:
@@ -160,7 +160,7 @@ jobs:
             exit 1
           fi
 
-          BASE_URL="https://${AZURE_RESOURCE_NAME}.services.ai.azure.com/openai/v1/"
+          BASE_URL="https://${AZURE_RESOURCE_NAME}.services.ai.azure.com/openai/v1"
           echo "==> Setting baseURL: $BASE_URL"
           echo "==> Target config: $CONFIG_FILE"
 
@@ -203,7 +203,7 @@ jobs:
 
         env:
           CONFIG_FILE: /home/runner/.config/opencode/profiles/ws/opencode.jsonc
-          BASE_URL: ${{ format('https://{0}.services.ai.azure.com/openai/v1/', env.AZURE_RESOURCE_NAME) }}
+          BASE_URL: ${{ format('https://{0}.services.ai.azure.com/openai/v1', env.AZURE_RESOURCE_NAME) }}
      
 
       - name: Run OpenCode for command comments (incluye reviews)
