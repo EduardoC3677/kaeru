@@ -19,59 +19,24 @@ from kaeru_mtk.utils.errors import KaeruError
 from kaeru_mtk.utils.logging import install_console_logging
 
 
-def _add_global_runner_args(p: argparse.ArgumentParser) -> None:
-    g = p.add_argument_group("mtkclient runner")
-    g.add_argument("--mtk-bin", help="override mtkclient executable (env: KAERU_MTK_BIN)")
-    g.add_argument("--loader", help="path to MediaTek DA blob (forwarded to mtkclient --loader)")
-    g.add_argument("--preloader", help="path to preloader blob (forwarded to mtkclient --preloader)")
-    g.add_argument(
-        "--auth-file",
-        help="explicit path to auth_sv5.auth (overrides hwcode-based auto-resolution)",
-    )
-    g.add_argument(
-        "--no-auto-auth",
-        action="store_true",
-        help="never auto-pick a bundled auth file",
-    )
-
-
-def _add_dry_run(p: argparse.ArgumentParser) -> None:
-    p.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="print the mtkclient invocation without executing it",
-    )
-
-
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="kaeru-mtk",
-        description=(
-            "Windows-first OnePlus / OPPO MediaTek flasher.\n"
-            "Wraps mtkclient (https://github.com/bkerler/mtkclient) and adds:\n"
-            "  - 15 bundled auth_sv5.auth files for MT6763 / 6765 / 6769 / 6771 /\n"
-            "    6779 / 6833 / 6853 / 6873 / 6877 / 6885 / 6889 / 6893\n"
-            "  - automatic auth selection based on detected hwcode\n"
-            "  - the four RSA-2048 SLA public keys extracted from OPlus's\n"
-            "    SLA_Challenge.dll, used to label which embedded key your\n"
-            "    device's auth modulus matches against\n"
-            "  - a Zadig / WinUSB driver helper for Windows hosts\n"
-            "Apache-2.0. Educational and security-research use; you can brick your phone."
-        ),
+        description="MediaTek BROM/DA flashing tool for OPPO/OnePlus devices",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Workflow:\n"
             "  kaeru-mtk driver install         # Windows: bind WinUSB via Zadig\n"
             "  kaeru-mtk detect                 # list MTK USB endpoints\n"
-            "  kaeru-mtk info                   # hwcode + matched bundled auth\n"
+            "  kaeru-mtk info                   # probe device, show config\n"
             "  kaeru-mtk auth list              # list bundled auth files\n"
             "  kaeru-mtk socs                   # list known SoCs\n"
-            "  kaeru-mtk exploit list           # exploits available in mtkclient\n"
+            "  kaeru-mtk exploit run            # run BROM exploit\n"
             "  kaeru-mtk flash read --partition boot --out boot.bin\n"
             "  kaeru-mtk flash readall --out-dir backup/\n"
             "  kaeru-mtk flash write --partition recovery --image recovery.img\n"
-            "  kaeru-mtk flash erase --partition userdata --confirm-brick-risk\n"
-            "  kaeru-mtk unlock-bl --confirm-unlock\n"
+            "  kaeru-mtk flash erase --partition userdata\n"
+            "  kaeru-mtk unlock-bl              # OPPO/OnePlus BL unlock\n"
         ),
     )
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -88,9 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("detect", help="list MTK USB endpoints currently visible")
 
-    pi = sub.add_parser("info", help="probe device, print hwcode + matched bundled auth")
-    _add_global_runner_args(pi)
-    _add_dry_run(pi)
+    pi = sub.add_parser("info", help="probe device, print BROM config + SoC match")
+    pi.add_argument("--auth-file", help="path to auth_sv5.auth for SLA auth attempt")
 
     pa = sub.add_parser("auth", help="inspect bundled auth files")
     pa_sub = pa.add_subparsers(dest="action", required=True, metavar="<action>")
@@ -100,71 +64,43 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("socs", help="list known SoCs (hwcode, family, arch, bundled auth?)")
 
-    pe = sub.add_parser("exploit", help="list / run mtkclient exploits")
+    pe = sub.add_parser("exploit", help="BROM exploits")
     pe_sub = pe.add_subparsers(dest="action", required=True, metavar="<action>")
-    pe_sub.add_parser("list", help="show kamakiri/kamakiri2/carbonara/hashimoto/heapbait")
-    per = pe_sub.add_parser("run", help="hand off to mtkclient with --ptype")
+    pe_sub.add_parser("list", help="show available exploits")
+    per = pe_sub.add_parser("run", help="run BROM exploit on connected device")
     per.add_argument(
-        "--ptype",
-        choices=("kamakiri", "kamakiri2", "carbonara"),
-        help="exploit type (mtkclient picks one automatically if omitted)",
+        "--exploit",
+        choices=("kamakiri", "kamakiri2", "carbonara", "hashimoto", "heapbait"),
+        help="exploit to use (auto-detected from arch if omitted)",
     )
-    _add_global_runner_args(per)
-    _add_dry_run(per)
+    per.add_argument("--payload", help="path to custom shellcode payload")
+    per.add_argument("--wait-da", type=float, default=30.0, help="seconds to wait for DA after exploit")
 
-    pf = sub.add_parser("flash", help="partition I/O via mtkclient")
+    pf = sub.add_parser("flash", help="partition I/O via DA protocol")
     pf_sub = pf.add_subparsers(dest="action", required=True, metavar="<action>")
 
-    pfr = pf_sub.add_parser("read", help="read one partition to a file (mtk r)")
+    pfr = pf_sub.add_parser("read", help="read one partition to a file")
     pfr.add_argument("--partition", required=True)
     pfr.add_argument("--out", required=True)
-    _add_global_runner_args(pfr)
-    _add_dry_run(pfr)
+    pfr.add_argument("--size", type=int, default=0, help="bytes to read (0 = full partition)")
 
-    pfra = pf_sub.add_parser("readall", help="read every partition to a directory (mtk rl)")
+    pfra = pf_sub.add_parser("readall", help="read every partition to a directory")
     pfra.add_argument("--out-dir", required=True)
-    pfra.add_argument(
-        "--exclude-sensitive",
-        action="store_true",
-        help="skip nvram, nvdata, nvcfg, persist, oplusreserve1/2/3, prodnv, sgpt",
-    )
-    _add_global_runner_args(pfra)
-    _add_dry_run(pfra)
+    pfra.add_argument("--exclude-sensitive", action="store_true", help="skip nvram, nvdata, etc.")
 
-    pfw = pf_sub.add_parser("write", help="write a partition from a file (mtk w)")
+    pfw = pf_sub.add_parser("write", help="write a partition from a file")
     pfw.add_argument("--partition", required=True)
     pfw.add_argument("--image", required=True)
-    pfw.add_argument(
-        "--confirm-brick-risk",
-        action="store_true",
-        help="required: writing the wrong partition can permanently brick the device",
-    )
-    _add_global_runner_args(pfw)
-    _add_dry_run(pfw)
+    pfw.add_argument("--confirm-brick-risk", action="store_true", help="required: can brick device")
 
-    pfe = pf_sub.add_parser("erase", help="erase a partition (mtk e)")
+    pfe = pf_sub.add_parser("erase", help="erase a partition")
     pfe.add_argument("--partition", required=True)
-    pfe.add_argument(
-        "--confirm-brick-risk",
-        action="store_true",
-        help="required: erasing the wrong partition can permanently brick the device",
-    )
-    _add_global_runner_args(pfe)
-    _add_dry_run(pfe)
+    pfe.add_argument("--confirm-brick-risk", action="store_true", help="required: can brick device")
 
-    pu = sub.add_parser("unlock-bl", help="OPPO/OnePlus unlock (writes oplusreserve1)")
-    pu.add_argument(
-        "--confirm-unlock",
-        action="store_true",
-        help="required: this voids the warranty and wipes user data",
-    )
-    pu.add_argument(
-        "--allow-dangerous",
-        action="store_true",
-        help="required: needed in addition to --confirm-unlock",
-    )
-    _add_global_runner_args(pu)
-    _add_dry_run(pu)
+    pu = sub.add_parser("unlock-bl", help="OPPO/OnePlus BL unlock")
+    pu.add_argument("--confirm-unlock", action="store_true", help="required: voids warranty")
+    pu.add_argument("--allow-dangerous", action="store_true", help="required: additional confirmation")
+    pu.add_argument("--auth-file", help="path to auth_sv5.auth")
 
     return p
 
@@ -178,7 +114,7 @@ _DISPATCH = {
     ("auth", "resolve"): cmd_auth.resolve,
     ("socs", None): cmd_socs.run,
     ("exploit", "list"): cmd_exploit.list_exploits,
-    ("exploit", "run"): cmd_exploit.run,
+    ("exploit", "run"): cmd_exploit.run_exploit,
     ("flash", "read"): cmd_flash.read,
     ("flash", "readall"): cmd_flash.readall,
     ("flash", "write"): cmd_flash.write,

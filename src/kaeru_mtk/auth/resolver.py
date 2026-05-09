@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 from kaeru_mtk.data.auth_index import AuthBundle, best_bundle_for_hwcode
 from kaeru_mtk.data.soc_db import SocSpec, find_by_hwcode
-from kaeru_mtk.runner.mtkclient import MtkClientRunner
 from kaeru_mtk.utils.errors import KaeruError
 from kaeru_mtk.utils.logging import get_logger
 
@@ -48,18 +47,6 @@ def _parse_hwcode(text: str) -> int | None:
     return None
 
 
-def detect_hwcode_via_mtkclient(runner: MtkClientRunner, *, timeout: float = 30.0) -> int:
-    proc = runner.run("gettargetconfig", check=False)
-    code = _parse_hwcode(proc.stdout or "")
-    if code is None:
-        raise HwcodeDetectionError(
-            "could not extract hw_code from mtkclient output. Raw output:\n"
-            + (proc.stdout or "<empty>")
-        )
-    log.info("detected hw_code=0x%04x", code)
-    return code
-
-
 def resolve_auth(hw_code: int) -> AuthResolution:
     socs = tuple(find_by_hwcode(hw_code))
     bundle = best_bundle_for_hwcode(hw_code)
@@ -69,6 +56,5 @@ def resolve_auth(hw_code: int) -> AuthResolution:
 __all__ = [
     "AuthResolution",
     "HwcodeDetectionError",
-    "detect_hwcode_via_mtkclient",
     "resolve_auth",
 ]

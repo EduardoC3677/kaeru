@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kaeru-mtk"
-version = "0.2.0"
-description = "Windows-first OnePlus / OPPO MediaTek flasher built on top of mtkclient"
+version = "0.3.0"
+description = "MediaTek BROM/DA protocol tool for OPPO/OnePlus devices"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "kaeru contributors" }]
 requires-python = ">=3.9"
-keywords = ["mediatek", "mtk", "brom", "da", "flasher", "oneplus", "oppo", "winusb", "mtkclient"]
+keywords = ["mediatek", "mtk", "brom", "da", "flasher", "oneplus", "oppo", "winusb"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -27,9 +27,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mtkclient = [
-    "mtkclient @ git+https://github.com/bkerler/mtkclient.git",
-]
 windows = [
     "pywin32>=306; sys_platform == 'win32'",
 ]

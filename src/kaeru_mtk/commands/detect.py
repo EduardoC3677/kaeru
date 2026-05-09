@@ -12,12 +12,16 @@ log = get_logger(__name__)
 def _enumerate_libusb() -> list[tuple[int, int, str]]:
     try:
         import usb.core
+        import usb.util
     except ImportError:
         log.warning("pyusb is not installed; skipping libusb enumeration")
         return []
     found: list[tuple[int, int, str]] = []
     for entry in all_known_ids():
-        for dev in usb.core.find(find_all=True, idVendor=entry.vid, idProduct=entry.pid) or []:
+        devs = usb.core.find(find_all=True, idVendor=entry.vid, idProduct=entry.pid)
+        if devs is None:
+            continue
+        for dev in devs:
             try:
                 manuf = usb.util.get_string(dev, dev.iManufacturer) or ""
                 product = usb.util.get_string(dev, dev.iProduct) or ""

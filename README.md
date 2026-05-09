@@ -1,71 +1,69 @@
 # kaeru-mtk
 
-Windows-first OnePlus / OPPO MediaTek flasher built on top of
-[mtkclient](https://github.com/bkerler/mtkclient).
+MediaTek BROM/DA protocol tool for OPPO/OnePlus devices.
 
-## What this is — and what it isn't
+Implements the MediaTek BootROM and Download Agent protocol directly via USB
+(pyusb/libusb), with bundled authentication files, SLA public keys, and BROM
+exploits for both ARMv7 and AArch64 SoCs.
 
-`kaeru-mtk` does **not** reimplement the MediaTek BROM/DA on-the-wire
-protocol. The actual on-the-wire work — handshake, exploits
-(`kamakiri`, `kamakiri2`, `carbonara`, `hashimoto`, `heapbait`), DA loading,
-and partition I/O — is delegated to `mtkclient`, which is the mature,
-hardware-tested reference implementation.
+## Architecture
 
-What kaeru-mtk adds on top:
-
-* **15 bundled `auth_sv5.auth` files** under [`src/kaeru_mtk/data/auth/`](src/kaeru_mtk/data/auth/),
-  covering MT6763, MT6765, MT6769, MT6771, MT6779, MT6833, MT6853, MT6873,
-  MT6877, MT6885, MT6889, MT6893. Each file starts with the MTK GFH magic
-  `MMM\x01` and carries a 256-byte RSA-2048 modulus at offset `0x4C4` plus a
-  256-byte signature at the end.
-* **The four RSA-2048 SLA public keys** extracted from `SLA_Challenge.dll`
-  (OPlus build 2021-11-23), embedded in
-  [`src/kaeru_mtk/data/sla_keys.py`](src/kaeru_mtk/data/sla_keys.py). Cross-
-  referencing each auth file's modulus against this set shows that **Key #1
-  is shared by seven SoCs** (MT6763, MT6833, MT6853, MT6873, MT6877, MT6885,
-  MT6889).
-* **A SoC database** ([`src/kaeru_mtk/data/soc_db.py`](src/kaeru_mtk/data/soc_db.py))
-  whose hwcodes are cross-checked against `mtkclient`'s `brom_config.py`.
-  Every entry is verified.
-* **Automatic auth selection**: when you run a command that talks to a
-  device, kaeru-mtk asks mtkclient for the device's hwcode, looks up the
-  correct bundled auth file, and forwards it via `mtk --auth <path>`.
-* **Windows driver helper**: `kaeru-mtk driver install` downloads Zadig and
-  walks through binding WinUSB to the MediaTek BROM endpoint.
-
-The `kaeru-mtk` CLI also provides safer defaults than raw `mtk` for the
-OPPO/OnePlus flow: every destructive action requires an explicit
-`--confirm-brick-risk` (or `--confirm-unlock --allow-dangerous` for BL
-unlock), and every action supports `--dry-run` to preview the underlying
-`mtk` invocation.
+```
+src/kaeru_mtk/
+├── cli.py                argparse + subcommand dispatch
+├── transport/
+│   ├── interface.py      abstract transport interface
+│   └── usb.py            USB transport via pyusb (WinUSB/libusb)
+├── protocol/
+│   ├── brom.py           BROM protocol: handshake, commands, DA loading
+│   ├── da.py             DA protocol: partition enumeration, read/write/erase
+│   ├── sla.py            SLA authentication (challenge-response)
+│   └── exploits/
+│       ├── kamakiri.py   ARMv7 USB control-transfer overflow
+│       ├── kamakiri2.py  AArch64 USBDL overflow
+│       ├── carbonara.py  Alternative AArch64 entry vector
+│       ├── hashimoto.py  DMA-engine BROM dump primitive
+│       └── heapbait.py   Heap-based exploit for newer Dimensity
+├── commands/
+│   ├── _session.py       device session management
+│   ├── detect.py         USB endpoint enumeration
+│   ├── info.py           BROM config probe + SoC match
+│   ├── auth.py           bundled auth file inspection
+│   ├── socs.py           SoC database listing
+│   ├── exploit.py        BROM exploit runner
+│   ├── flash.py          partition I/O via DA
+│   ├── unlock.py         OPPO/OnePlus BL unlock
+│   └── driver.py         Windows driver helper
+├── data/
+│   ├── auth/             15 auth_sv5.auth blobs (MMM\x01 GFH)
+│   ├── auth_index.py     parses bundled auth + matches SLA key
+│   ├── sla_keys.py       4 RSA-2048 keys from SLA_Challenge.dll
+│   ├── soc_db.py         hwcode → SocSpec, verified vs mtkclient
+│   └── usb_ids.py        MediaTek VID/PID list
+├── driver/
+│   └── windows.py        Zadig downloader + PnpDevice driver query
+└── utils/
+    ├── errors.py         typed error hierarchy
+    ├── logging.py        rich console logging
+    └── hexdump.py        hex dump formatter
+```
 
 ## Install
 
-`mtkclient` is not on PyPI, so the recommended install is:
-
 ```bash
 pip install -e .
-pip install git+https://github.com/bkerler/mtkclient.git
 ```
 
-Or, in one shot:
-
-```bash
-pip install -e .[mtkclient]
-```
-
-If `mtk` is available on `PATH` (or you set `KAERU_MTK_BIN` to a custom
-command), kaeru-mtk will use it. Otherwise it falls back to invoking
-`mtk.py` from the imported `mtkclient` package directly.
+Requires pyusb + libusb (or WinUSB on Windows).
 
 ## Usage
 
 ```bash
 kaeru-mtk --help                                    # top-level help
-kaeru-mtk socs                                      # list known SoCs (hwcode, family, arch, bundled auth?)
-kaeru-mtk auth list                                 # 15 bundled auth files + their matched SLA key index
-kaeru-mtk auth resolve 0x959                        # resolve a specific hwcode
-kaeru-mtk exploit list                              # show kamakiri / kamakiri2 / carbonara / hashimoto / heapbait
+kaeru-mtk socs                                      # list known SoCs
+kaeru-mtk auth list                                 # 15 bundled auth files
+kaeru-mtk auth resolve 0x959                        # resolve auth for hwcode
+kaeru-mtk exploit list                              # show available exploits
 
 # Windows: bind WinUSB via Zadig
 kaeru-mtk driver install
@@ -77,75 +75,78 @@ kaeru-mtk detect
 # Probe device + auto-select bundled auth
 kaeru-mtk info
 
-# Partition I/O (dry-run prints the mtk invocation; without --dry-run it actually runs it)
+# Run BROM exploit (auto-detects kamakiri/kamakiri2 from arch)
+kaeru-mtk exploit run
+kaeru-mtk exploit run --exploit kamakiri2
+
+# Partition I/O (requires DA after exploit)
 kaeru-mtk flash read    --partition boot     --out boot.bin
 kaeru-mtk flash readall --out-dir backup/    --exclude-sensitive
 kaeru-mtk flash write   --partition recovery --image recovery.img --confirm-brick-risk
 kaeru-mtk flash erase   --partition userdata --confirm-brick-risk
 
-# OPPO/OnePlus BL unlock (dry-run prints the steps; full automation is intentionally not bundled, see below)
-kaeru-mtk unlock-bl --dry-run
+# OPPO/OnePlus BL unlock
+kaeru-mtk unlock-bl --confirm-unlock --allow-dangerous
 ```
 
-### Authentication auto-resolution
+## BROM Protocol
 
-Most commands accept an explicit `--auth-file <path>`. Without it,
-kaeru-mtk will:
+The BROM (BootROM) is the first code executing on MediaTek SoCs. It appears as
+USB device `0E8D:0003` and speaks a custom control-transfer protocol:
 
-1. Run `mtk gettargetconfig` and parse the `hw_code` from its output.
-2. Look up the hwcode in
-   [`src/kaeru_mtk/data/soc_db.py`](src/kaeru_mtk/data/soc_db.py).
-3. Pick the bundled auth file under
-   [`src/kaeru_mtk/data/auth/`](src/kaeru_mtk/data/auth/) whose stem matches.
-4. Forward it as `mtk --auth <path>`.
+| Command | Code | Description |
+|---------|------|-------------|
+| GET_HW_CODE | 0xD1 | Read 16-bit hardware code |
+| GET_HW_SW_VER | 0xD2 | Read hw/sw version quadlet |
+| GET_TARGET_CONFIG | 0xD3 | Read full target config |
+| WRITE16 | 0xD4 | Write 16-bit value to memory |
+| WRITE32 | 0xD5 | Write 32-bit value to memory |
+| READ16 | 0xD6 | Read 16-bit from memory |
+| READ32 | 0xD7 | Read 32-bit from memory |
+| JUMP_DA | 0xD8 | Jump to Download Agent |
+| SEND_DA | 0xDA | Transfer DA blob to SRAM |
+| GET_DA_LOAD_INFO | 0xDB | Get DA load address/size |
+| SEND_CERT | 0xDC | Send certificate |
+| SEND_AUTH_DATA | 0xDD | Send authentication data |
+| GET_CHALLENGE | 0xDE | Get BROM challenge |
+| WRITE_REG | 0xE0 | Write device register |
+| READ_REG | 0xE1 | Read device register |
+| JUMP_ADDR | 0xE2 | Jump to arbitrary address |
 
-You can disable this behaviour with `--no-auto-auth`.
+## Exploits
 
-### BL unlock
+The BROM exploits work by sending malformed USB control transfers that overflow
+stack buffers in the BROM's USB handler, bypassing authentication:
 
-`unlock-bl` only supports `--dry-run` in this release. The full unlock
-procedure is device-specific (per-product offsets and structures inside
-`oplusreserve1`), and shipping a one-size-fits-all flipper would brick
-devices. The intended flow is:
+- **kamakiri** (ARMv7): `ctrl_transfer(0xA1, 0x00, 0xFFFF, 0x0000, payload)`
+- **kamakiri2** (AArch64): `ctrl_transfer(0xA1, 0x21, 0xFFFF, 0x0000, payload)`
+- **carbonara** (AArch64): Alternative vector using `bRequest=0x22`
+- **hashimoto** (ARMv7): DMA engine primitive
+- **heapbait** (AArch64): Heap-based for newer Dimensity
 
-1. `kaeru-mtk flash read --partition oplusreserve1 --out reserve1.bin`
-2. Edit the unlock flag at the offset documented for **your** device.
-3. `kaeru-mtk flash write --partition oplusreserve1 --image reserve1.bin --confirm-brick-risk`
+## Bundled Auth
 
-## Architecture
+15 `auth_sv5.auth` files are bundled under `src/kaeru_mtk/data/auth/`, covering
+MT6763, MT6765, MT6769, MT6771, MT6779, MT6833, MT6853, MT6873, MT6877,
+MT6885, MT6889, MT6893. Each file starts with the MTK GFH magic `MMM\x01` and
+carries a 256-byte RSA-2048 modulus at offset `0x4C4`.
 
-```
-src/kaeru_mtk/
-├── cli.py                argparse, subcommand dispatch
-├── auth/                 hwcode → bundled-auth resolver
-├── commands/             one module per CLI subcommand
-├── data/
-│   ├── auth/             15 real auth_sv5.auth blobs (MMM\x01 GFH)
-│   ├── auth_index.py     parses bundled auth + matches SLA key
-│   ├── sla_keys.py       4 RSA-2048 keys from SLA_Challenge.dll
-│   ├── soc_db.py         hwcode → SocSpec, verified vs mtkclient
-│   └── usb_ids.py        MediaTek VID/PID list
-├── driver/
-│   └── windows.py        Zadig downloader + PnpDevice driver query
-├── runner/
-│   └── mtkclient.py      subprocess wrapper around `mtk`
-└── utils/                logging, error types
-```
+## SLA Keys
+
+Four RSA-2048 public keys extracted from `SLA_Challenge.dll` (OPlus build
+2021-11-23) are embedded in `src/kaeru_mtk/data/sla_keys.py`. Key #1 is shared
+by seven SoCs (MT6763, MT6833, MT6853, MT6873, MT6877, MT6885, MT6889).
 
 ## Verification
 
 ```bash
 ruff check src tests
-pytest                    # 41 tests covering SoC DB, auth bundles, SLA keys, runner, CLI
+pytest                    # 53 tests
 ```
 
 ## License
 
 Apache-2.0. The bundled auth files are unmodified extracts from the public
-`EduardoC3677/opencode` repository (themselves originally extracted from
-the publicly distributed OPlus Tools-Hub). The four RSA-2048 SLA public
-keys are extracted from the publicly distributed `SLA_Challenge.dll`. No
-private keys are or have ever been shipped.
-
-`mtkclient` itself is GPL-3.0; running it as a subprocess from kaeru-mtk
-does not affect kaeru-mtk's own licensing.
+`EduardoC3677/opencode` repository. The four RSA-2048 SLA public keys are
+extracted from the publicly distributed `SLA_Challenge.dll`. No private keys
+are or have ever been shipped.
