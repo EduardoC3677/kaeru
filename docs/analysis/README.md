@@ -17,7 +17,10 @@ string extraction; no device was flashed and no runtime data was collected.
 
 ## Reproducing the analysis
 
-The helper script [`scripts/analysis/analyze_lk.py`](../../scripts/analysis/analyze_lk.py)
+The helper scripts under `scripts/analysis/` reproduce every finding in
+this directory deterministically from the input artefacts.
+
+[`scripts/analysis/analyze_lk.py`](../../scripts/analysis/analyze_lk.py)
 performs container detection, capstone disassembly (AArch64/ARMv7 auto-detect)
 and string-classification in one pass.
 
@@ -34,6 +37,20 @@ python3 scripts/analysis/analyze_lk.py lk.img --disasm lk.S
 python3 scripts/analysis/analyze_lk.py scp.img --no-disasm
 ```
 
+[`scripts/analysis/extract_mtk_sla_keys.py`](../../scripts/analysis/extract_mtk_sla_keys.py)
+clones / re-uses an OPLUSFLASHTOOLNEXT tree (the `O+/` folder of
+[`EduardoC3677/opencode`](https://github.com/EduardoC3677/opencode))
+and extracts every MTK SV5 SLA / Anti-Clone RSA-2048 modulus from
+`SLA_Challenge.dll` and the per-SoC `auth_sv5.auth` blobs, then
+cross-matches the two sets to reveal which SoCs share which OEM key.
+
+```bash
+pip install pefile capstone
+
+git clone --depth 1 https://github.com/EduardoC3677/opencode.git /tmp/opencode
+python3 scripts/analysis/extract_mtk_sla_keys.py /tmp/opencode/O+
+```
+
 ## Documents
 
 | File | Contents |
@@ -43,6 +60,7 @@ python3 scripts/analysis/analyze_lk.py scp.img --no-disasm
 | [`opseclib-dll.md`](./opseclib-dll.md) | Static analysis of OPPO's Windows-side `OpSecLib.dll` (signed crypto library, OpenSSL-backed, packed with a commercial PE protector). |
 | [`oplus-toolshub-bins.md`](./oplus-toolshub-bins.md) | Static analysis of the 10 other Windows binaries that ship next to `OpSecLib.dll` (`LoginPlugin.dll`, `ToolsUpgrade.exe`, `libUpdate.dll`, `libTHS.dll`, `libCustomCrypto.dll`, `libDigest.dll`, `libConfig.dll`, `libDatabase.dll`, `libcrypto-1_1.dll`). Identity, signing chain, dependency graph, hard-coded URLs / endpoints / headers / keys, PDB build-pipeline leaks. |
 | [`servermanager-exe.md`](./servermanager-exe.md) | Dedicated write-up of the **unsigned** `ServerManager.exe` — a 64-bit reverse proxy that rewrites the Windows `hosts` file to route OPPO's `dfs-server-test.wanyol.com` traffic to a third-party host (`gsmnepalserver.com/realme`) over HTTPS. |
+| [`mtk-da-brom.md`](./mtk-da-brom.md) | MediaTek **Download Agent** + **BootROM** keys: extracts and cross-matches the four RSA-2048 SLA / Anti-Clone moduli hard-coded in OPlus's signed `SLA_Challenge.dll` against the per-SoC `auth_sv5.auth` blobs for 15 V5 SoCs, identifies the seven SoCs (MT6763 / MT6833 / MT6853 / MT6873 / MT6877 / MT6885 / MT6889) that share a single OEM Anti-Clone public key, dumps the eFuse field-name map (`sbc_pub_key_hash{,1,2,3}`, `sla_en`, `sbc_en`, `ac_key_blow`, …) extracted from `FTLibMtkCore.dll`, and inventories the OPlus-encrypted DA payloads under `oplusD2/`. |
 
 ## Top-level findings
 
@@ -81,6 +99,23 @@ python3 scripts/analysis/analyze_lk.py scp.img --no-disasm
   `https://gsmnepalserver.com/realme`. Full breakdown in
   [`oplus-toolshub-bins.md`](./oplus-toolshub-bins.md) and
   [`servermanager-exe.md`](./servermanager-exe.md).
+* The same opencode bundle ships **MediaTek's reference flash-tool SDK**
+  customised by OPlus, including the four RSA-2048 SLA / Anti-Clone
+  public keys hard-coded in OPlus's signed `SLA_Challenge.dll` (2021
+  build, OpenSSL/`LIBEAY32`-backed) and 15 per-SoC `auth_sv5.auth`
+  Anti-Clone blobs. The 15 files cover 14 V5 SoCs (MT6763, MT6765 + 2
+  silicon revisions, MT6769, MT6771 + 1 revision, MT6779, MT6833,
+  MT6853, MT6873, MT6877, MT6885, MT6889, MT6893) and contain seven
+  distinct RSA-2048 OEM moduli. **One of those seven moduli is
+  byte-identical to `SLA_Challenge.dll` modulus #1** and is the AC key
+  for **seven different SoCs simultaneously**: MT6763, MT6833, MT6853,
+  MT6873, MT6877, MT6885 and MT6889. The complete extraction —
+  including the full hex of all four DLL keys, the eFuse field-name
+  map (`sbc_pub_key_hash{,1,2,3}`, `sla_en`, `sbc_en`, `ac_key_blow`,
+  `efuse_sf_boot_dis`, …), the BROM/DA handshake call sequence, and
+  an inventory of the encrypted `oplusD2/` DA payloads — lives in
+  [`mtk-da-brom.md`](./mtk-da-brom.md). The reproducer script is
+  [`scripts/analysis/extract_mtk_sla_keys.py`](../../scripts/analysis/extract_mtk_sla_keys.py).
 
 [issue]: https://github.com/R0rt1z2/kaeru/issues/5
 [capstone]: https://www.capstone-engine.org/
