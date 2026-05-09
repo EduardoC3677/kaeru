@@ -27,37 +27,46 @@ concurrency:
 jobs:
   opencode:
     # contains('/ocd', '/oc') is true, so /ocd and /opencoded must be explicitly excluded.
+    # Also skip when the actor / author is a bot — the action asserts write permission
+    # on the actor and bots have `permission: none`, which causes:
+    #   "User opencode-agent[bot] does not have write permissions"
     if: >-
       ${{
-        github.event_name == 'workflow_dispatch' ||
+        github.actor != 'opencode-agent[bot]' &&
+        github.event.sender.type != 'Bot' &&
         (
-          (github.event_name == 'issues' || github.event_name == 'pull_request') &&
+          github.event_name == 'workflow_dispatch' ||
           (
-            contains(github.event.issue.body, '/oc ') ||
-            contains(github.event.issue.body, '/opencode ') ||
-            endsWith(github.event.issue.body, '/oc') ||
-            endsWith(github.event.issue.body, '/opencode') ||
-            contains(github.event.pull_request.body, '/oc ') ||
-            contains(github.event.pull_request.body, '/opencode ') ||
-            endsWith(github.event.pull_request.body, '/oc') ||
-            endsWith(github.event.pull_request.body, '/opencode')
-          ) &&
-          !contains(github.event.issue.body, '/ocd') &&
-          !contains(github.event.issue.body, '/opencoded') &&
-          !contains(github.event.pull_request.body, '/ocd') &&
-          !contains(github.event.pull_request.body, '/opencoded')
-        ) ||
-        (
-          (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
-          github.event.comment.user.type != 'Bot' &&
+            (github.event_name == 'issues' || github.event_name == 'pull_request') &&
+            github.event.issue.user.type != 'Bot' &&
+            github.event.pull_request.user.type != 'Bot' &&
+            (
+              contains(github.event.issue.body, '/oc ') ||
+              contains(github.event.issue.body, '/opencode ') ||
+              endsWith(github.event.issue.body, '/oc') ||
+              endsWith(github.event.issue.body, '/opencode') ||
+              contains(github.event.pull_request.body, '/oc ') ||
+              contains(github.event.pull_request.body, '/opencode ') ||
+              endsWith(github.event.pull_request.body, '/oc') ||
+              endsWith(github.event.pull_request.body, '/opencode')
+            ) &&
+            !contains(github.event.issue.body, '/ocd') &&
+            !contains(github.event.issue.body, '/opencoded') &&
+            !contains(github.event.pull_request.body, '/ocd') &&
+            !contains(github.event.pull_request.body, '/opencoded')
+          ) ||
           (
-            contains(github.event.comment.body, '/oc ') ||
-            contains(github.event.comment.body, '/opencode ') ||
-            endsWith(github.event.comment.body, '/oc') ||
-            endsWith(github.event.comment.body, '/opencode')
-          ) &&
-          !contains(github.event.comment.body, '/ocd') &&
-          !contains(github.event.comment.body, '/opencoded')
+            (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
+            github.event.comment.user.type != 'Bot' &&
+            (
+              contains(github.event.comment.body, '/oc ') ||
+              contains(github.event.comment.body, '/opencode ') ||
+              endsWith(github.event.comment.body, '/oc') ||
+              endsWith(github.event.comment.body, '/opencode')
+            ) &&
+            !contains(github.event.comment.body, '/ocd') &&
+            !contains(github.event.comment.body, '/opencoded')
+          )
         )
       }}
 
