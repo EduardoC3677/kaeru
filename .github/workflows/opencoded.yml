@@ -57,7 +57,7 @@ jobs:
       # Azure Foundry
       AZURE_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY || secrets.AZURE_API_KEY }}
       AZURE_RESOURCE_NAME: ${{ secrets.AZURE_FOUNDRY_RESOURCE_NAME || secrets.AZURE_RESOURCE_NAME }}
-      ANTHROPIC_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY || secrets.AZURE_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY || secrets.AZURE_API_KEY }}
       RAW_MODEL: ${{ github.event.inputs.model || vars.OPENCODE_MODEL || 'deepseek/deepseek-v4-flash' }}
       GITHUB_TOKEN: ${{ github.token }}
 
