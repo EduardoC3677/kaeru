@@ -4,21 +4,6 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
-  issues:
-    types: [opened, edited, reopened]
-  pull_request:
-    types: [opened, reopened, ready_for_review]
-  workflow_dispatch:
-    inputs:
-      prompt:
-        description: Prompt to run with OpenCode
-        required: true
-        type: string
-      model:
-        description: Model to run with OpenCode
-        required: false
-        default: deepseek/deepseek-v4-flash
-        type: string
 
 concurrency:
   group: opencoded-${{ github.workflow }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
@@ -28,14 +13,9 @@ jobs:
   opencode:
     if: >-
       ${{
-        github.event_name == 'workflow_dispatch' ||
-        github.event_name == 'issues' ||
-        github.event_name == 'pull_request' ||
-        (
-          (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
-          (contains(github.event.comment.body, '/ocd') || contains(github.event.comment.body, '/opencoded')) &&
-          github.event.comment.user.type != 'Bot'
-        )
+        (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
+        (contains(format(' {0} ', github.event.comment.body), ' /ocd ') || contains(github.event.comment.body, '/opencoded')) &&
+        github.event.comment.user.type != 'Bot'
       }}
 
     runs-on: ubuntu-latest
@@ -58,7 +38,7 @@ jobs:
       AZURE_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY || secrets.AZURE_API_KEY }}
       AZURE_RESOURCE_NAME: ${{ secrets.AZURE_FOUNDRY_RESOURCE_NAME || secrets.AZURE_RESOURCE_NAME }}
       DEEPSEEK_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY || secrets.AZURE_API_KEY }}
-      RAW_MODEL: ${{ github.event.inputs.model || vars.OPENCODE_MODEL || 'deepseek/deepseek-v4-flash' }}
+      RAW_MODEL: ${{ vars.OPENCODE_MODEL || 'deepseek/deepseek-v4-flash' }}
       GITHUB_TOKEN: ${{ github.token }}
 
     steps:
@@ -90,8 +70,8 @@ jobs:
           set -euo pipefail
           raw="${RAW_MODEL}"
 
-          # Convert azure-cognitive-services/claude-* to anthropic/claude-*
-          if [[ "$raw" == azure-cognitive-services/DeepSeek-* ]]; then
+          # Convert azure-cognitive-services/* to deepseek/*
+          if [[ "$raw" == azure-cognitive-services/* ]]; then
             fixed="${raw/azure-cognitive-services\//deepseek/}"
           else
             fixed="$raw"
@@ -106,14 +86,14 @@ jobs:
           set -euo pipefail
           umask 077
 
-          if [ -z "${AZURE_API_KEY:-}" ]; then
-            echo "ERROR: AZURE_API_KEY is not set."
+          if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
+            echo "ERROR: DEEPSEEK_API_KEY is not set."
             exit 1
           fi
 
           mkdir -p "$HOME/.local/share/opencode"
           AUTH_FILE="$HOME/.local/share/opencode/auth.json"
-          printf '{"deepseek":{"type":"api","key":"%s"}}' "$AZURE_API_KEY" > "$AUTH_FILE"
+          printf '{"deepseek":{"type":"api","key":"%s"}}' "$DEEPSEEK_API_KEY" > "$AUTH_FILE"
           python3 -c "import json; json.load(open('$AUTH_FILE')); print('auth.json created and validated.')"
 
       - name: Install OCX + profile ws
@@ -205,34 +185,11 @@ jobs:
           BASE_URL: ${{ format('https://{0}.services.ai.azure.com/openai/v1', env.AZURE_RESOURCE_NAME) }}
      
 
-      - name: Run OpenCode for command comments (incluye reviews)
-        if: >-
-          ${{
-            github.event_name == 'issue_comment' ||
-            github.event_name == 'pull_request_review_comment'
-          }}
+      - name: Run OpenCode
         uses: anomalyco/opencode/github@latest
         continue-on-error: true
         with:
           model: ${{ steps.normalize_model.outputs.model }}
-
-      - name: Run OpenCode for issues/PR/workflow_dispatch
-        if: >-
-          ${{
-            github.event_name != 'issue_comment' &&
-            github.event_name != 'pull_request_review_comment'
-          }}
-        uses: anomalyco/opencode/github@latest
-        continue-on-error: true
-        with:
-          model: ${{ steps.normalize_model.outputs.model }}
-          prompt: >-
-            ${{
-              github.event_name == 'workflow_dispatch' && github.event.inputs.prompt ||
-              github.event_name == 'issues' && format('Analyze issue #{0} and implement the required repository changes.', github.event.issue.number) ||
-              github.event_name == 'pull_request' && format('Review pull request #{0}, apply needed fixes, and update the branch when required.', github.event.pull_request.number) ||
-              ''
-            }}
             
       - name: Mostrar logs de opencode
         if: always()   # importante para que corra aunque falle el job
