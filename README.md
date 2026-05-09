@@ -1,92 +1,152 @@
-# 🐸 かえる
-**Language:** [日本語](./README_ja-JP.md)
+# kaeru-mtk
 
-This repository contains an ARMv7 payload that provides arbitrary code execution on MediaTek bootloaders (LK).
+MediaTek BROM/DA protocol tool for OPPO/OnePlus devices.
 
-## Overview
->[!CAUTION]
-> If you don't know what you're doing, **you can brick your device**. This is not a beginner's project. Please **[READ THE DOCUMENTATION](https://github.com/R0rt1z2/kaeru/wiki)** carefully and understand the implications of modifying your bootloader.
+Implements the MediaTek BootROM and Download Agent protocol directly via USB
+(pyusb/libusb), with bundled authentication files, SLA public keys, and BROM
+exploits for both ARMv7 and AArch64 SoCs.
 
-Given a bootloader image, this tool will output a patched version that can be flashed to the device. The patched image will contain a custom payload that allows you to run arbitrary code during the boot process.
+## Architecture
 
-Things to keep in mind:
-- This payload is designed for devices using an **ARMv7** Little Kernel (LK) as their bootloader.
-- Offsets and addresses are specific to the device and bootloader version. You may need to adjust them for your specific device and bootloader version.
+```
+src/kaeru_mtk/
+├── cli.py                argparse + subcommand dispatch
+├── transport/
+│   ├── interface.py      abstract transport interface
+│   └── usb.py            USB transport via pyusb (WinUSB/libusb)
+├── protocol/
+│   ├── brom.py           BROM protocol: handshake, commands, DA loading
+│   ├── da.py             DA protocol: partition enumeration, read/write/erase
+│   ├── sla.py            SLA authentication (challenge-response)
+│   └── exploits/
+│       ├── kamakiri.py   ARMv7 USB control-transfer overflow
+│       ├── kamakiri2.py  AArch64 USBDL overflow
+│       ├── carbonara.py  Alternative AArch64 entry vector
+│       ├── hashimoto.py  DMA-engine BROM dump primitive
+│       └── heapbait.py   Heap-based exploit for newer Dimensity
+├── commands/
+│   ├── _session.py       device session management
+│   ├── detect.py         USB endpoint enumeration
+│   ├── info.py           BROM config probe + SoC match
+│   ├── auth.py           bundled auth file inspection
+│   ├── socs.py           SoC database listing
+│   ├── exploit.py        BROM exploit runner
+│   ├── flash.py          partition I/O via DA
+│   ├── unlock.py         OPPO/OnePlus BL unlock
+│   └── driver.py         Windows driver helper
+├── data/
+│   ├── auth/             15 auth_sv5.auth blobs (MMM\x01 GFH)
+│   ├── auth_index.py     parses bundled auth + matches SLA key
+│   ├── sla_keys.py       4 RSA-2048 keys from SLA_Challenge.dll
+│   ├── soc_db.py         hwcode → SocSpec, verified vs mtkclient
+│   └── usb_ids.py        MediaTek VID/PID list
+├── driver/
+│   └── windows.py        Zadig downloader + PnpDevice driver query
+└── utils/
+    ├── errors.py         typed error hierarchy
+    ├── logging.py        rich console logging
+    └── hexdump.py        hex dump formatter
+```
 
-The following list showcases the most common use cases for `kaeru`:
-- **Advanced debugging**: Use the payload to debug the boot process of your device by hooking into the bootloader's functions and variables.
-- **Custom fastboot commands**: Add your own fastboot commands to the bootloader.
-- **Remap button combinations**: You can set up custom boot modes and key combinations to enter different modes (e.g., recovery, fastboot, etc.).
-- **Remove bootloader warnings**: Remove the "unlocked bootloader" warning that appears when the device is booted with an unlocked bootloader.
+## Install
 
-<small>__... and much more!__</small>
+```bash
+pip install -e .
+```
 
-## Wiki
+Requires pyusb + libusb (or WinUSB on Windows).
 
-An elaborate wiki with multiple guides and notes has been provided to help you understand how kaeru works. Please refer to it to learn how to build, add support for a new device, and more:
-1. [Table of contents](https://github.com/R0rt1z2/kaeru/wiki)
-2. [Introduction](https://github.com/R0rt1z2/kaeru/wiki/Introduction)
-3. [Can I use kaeru on my device?](https://github.com/R0rt1z2/kaeru/wiki/Can-I-use-kaeru-on-my-device%3F)
-4. [Porting kaeru to a new device](https://github.com/R0rt1z2/kaeru/wiki/Porting-kaeru-to-a-new-device)
-5. [Customization and kaeru APIs](https://github.com/R0rt1z2/kaeru/wiki/Customization-and-kaeru-APIs)
+## Usage
+
+```bash
+kaeru-mtk --help                                    # top-level help
+kaeru-mtk socs                                      # list known SoCs
+kaeru-mtk auth list                                 # 15 bundled auth files
+kaeru-mtk auth resolve 0x959                        # resolve auth for hwcode
+kaeru-mtk exploit list                              # show available exploits
+
+# Windows: bind WinUSB via Zadig
+kaeru-mtk driver install
+kaeru-mtk driver status
+
+# Detect a connected device
+kaeru-mtk detect
+
+# Probe device + auto-select bundled auth
+kaeru-mtk info
+
+# Run BROM exploit (auto-detects kamakiri/kamakiri2 from arch)
+kaeru-mtk exploit run
+kaeru-mtk exploit run --exploit kamakiri2
+
+# Partition I/O (requires DA after exploit)
+kaeru-mtk flash read    --partition boot     --out boot.bin
+kaeru-mtk flash readall --out-dir backup/    --exclude-sensitive
+kaeru-mtk flash write   --partition recovery --image recovery.img --confirm-brick-risk
+kaeru-mtk flash erase   --partition userdata --confirm-brick-risk
+
+# OPPO/OnePlus BL unlock
+kaeru-mtk unlock-bl --confirm-unlock --allow-dangerous
+```
+
+## BROM Protocol
+
+The BROM (BootROM) is the first code executing on MediaTek SoCs. It appears as
+USB device `0E8D:0003` and speaks a custom control-transfer protocol:
+
+| Command | Code | Description |
+|---------|------|-------------|
+| GET_HW_CODE | 0xD1 | Read 16-bit hardware code |
+| GET_HW_SW_VER | 0xD2 | Read hw/sw version quadlet |
+| GET_TARGET_CONFIG | 0xD3 | Read full target config |
+| WRITE16 | 0xD4 | Write 16-bit value to memory |
+| WRITE32 | 0xD5 | Write 32-bit value to memory |
+| READ16 | 0xD6 | Read 16-bit from memory |
+| READ32 | 0xD7 | Read 32-bit from memory |
+| JUMP_DA | 0xD8 | Jump to Download Agent |
+| SEND_DA | 0xDA | Transfer DA blob to SRAM |
+| GET_DA_LOAD_INFO | 0xDB | Get DA load address/size |
+| SEND_CERT | 0xDC | Send certificate |
+| SEND_AUTH_DATA | 0xDD | Send authentication data |
+| GET_CHALLENGE | 0xDE | Get BROM challenge |
+| WRITE_REG | 0xE0 | Write device register |
+| READ_REG | 0xE1 | Read device register |
+| JUMP_ADDR | 0xE2 | Jump to arbitrary address |
+
+## Exploits
+
+The BROM exploits work by sending malformed USB control transfers that overflow
+stack buffers in the BROM's USB handler, bypassing authentication:
+
+- **kamakiri** (ARMv7): `ctrl_transfer(0xA1, 0x00, 0xFFFF, 0x0000, payload)`
+- **kamakiri2** (AArch64): `ctrl_transfer(0xA1, 0x21, 0xFFFF, 0x0000, payload)`
+- **carbonara** (AArch64): Alternative vector using `bRequest=0x22`
+- **hashimoto** (ARMv7): DMA engine primitive
+- **heapbait** (AArch64): Heap-based for newer Dimensity
+
+## Bundled Auth
+
+15 `auth_sv5.auth` files are bundled under `src/kaeru_mtk/data/auth/`, covering
+MT6763, MT6765, MT6769, MT6771, MT6779, MT6833, MT6853, MT6873, MT6877,
+MT6885, MT6889, MT6893. Each file starts with the MTK GFH magic `MMM\x01` and
+carries a 256-byte RSA-2048 modulus at offset `0x4C4`.
+
+## SLA Keys
+
+Four RSA-2048 public keys extracted from `SLA_Challenge.dll` (OPlus build
+2021-11-23) are embedded in `src/kaeru_mtk/data/sla_keys.py`. Key #1 is shared
+by seven SoCs (MT6763, MT6833, MT6853, MT6873, MT6877, MT6885, MT6889).
+
+## Verification
+
+```bash
+ruff check src tests
+pytest                    # 53 tests
+```
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
-
-Key points to be aware of:
-
-* You are free to use, modify, and distribute the software.
-* If you modify and use the software publicly, you must release your source code.
-* You must retain the same license (`AGPL-3.0`) when redistributing modified versions.
-* You cannot keep modifications private if the software is used to provide a networked service.
-
-For full details, please refer to the [LICENSE](https://github.com/R0rt1z2/kaeru/tree/master/LICENSE) file.
-
-### Copyright & Developers
-
-- **© 2023–2026 [KAERU Labs, S.L.](https://kaeru.cat/)**
-- Developed by:
-    - Roger Ortiz ([`@R0rt1z2`](https://github.com/R0rt1z2)) ([me@r0rt1z2.com](mailto:me@r0rt1z2.com))
-    - Mateo De la Hoz ([`@AntiEngineer`](https://github.com/AntiEngineer)) ([me@antiengineer.com](mailto:me@antiengineer.com))
-    - Shomy ([`@shomykohai`](https://github.com/shomykohai)) ([git@itssho.my](mailto:git@itssho.my))
-
-## Acknowledgments
-
-### Linux
-Some of the Makefile and build-related scripts were adapted from the [`Linux` kernel](https://github.com/torvalds/linux) source code.
-
-`Linux` which is licensed under the [GNU General Public License v2](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html).
-
-> © The Linux Foundation and contributors.  
-
-> <small>_Original source: https://github.com/torvalds/linux_</small>
-
-### nanoprintf
-This project includes [`nanoprintf`](https://github.com/charlesnicholson/nanoprintf), a minimal implementation of `printf`-style formatting designed for embedded systems.
-
-`nanoprintf` is dual-licensed under the [Unlicense](http://unlicense.org) and the [Zero-Clause BSD (0BSD)](https://opensource.org/licenses/0BSD). 
-
-> © 2019 Charles Nicholson.
-
-> <small>_Original source: https://github.com/charlesnicholson/nanoprintf_</small>
-
-### libsej
-This project includes [`libsej`](https://github.com/shomykohai/mtk-payloads/tree/main/libsej), a library for interacting with MediaTek's Security Engine (SEJ/HACC) hardware.
-
-`libsej` is licensed under the [GNU General Public License v3](https://www.gnu.org/licenses/gpl-3.0.en.html).
-
-> © 2024 B.Kerler, 2025 Shomy.
-
-<small>_Original source: https://github.com/shomykohai/mtk-payloads/tree/main/libsej_</small>
-
-## Disclaimer
-
-This software is provided **"as is"** without any warranty of any kind, express or implied. By using this tool, you acknowledge that:
-
-* Modifying the bootloader or flashing modified images carries **a high risk of permanently damaging your device** (bricking).
-* You are solely responsible for any consequences resulting from the use, misuse, or inability to use this software.
-* The maintainers and contributors of this project are **not liable for any damage**, data loss, device malfunction, or legal issues that may arise.
-* This project is intended for **educational and research purposes only**. It is **not intended for illegal or unauthorized use**.
-
-Proceed only if you fully understand the risks and implications.
+Apache-2.0. The bundled auth files are unmodified extracts from the public
+`EduardoC3677/opencode` repository. The four RSA-2048 SLA public keys are
+extracted from the publicly distributed `SLA_Challenge.dll`. No private keys
+are or have ever been shipped.
