@@ -1,0 +1,2 @@
+[console_scripts]
+kaeru-mtk = kaeru_mtk.cli:main
