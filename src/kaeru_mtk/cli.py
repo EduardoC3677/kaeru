@@ -6,60 +6,72 @@ import sys
 
 from kaeru_mtk._version import __version__
 from kaeru_mtk.commands import (
+    cmd_auth,
     cmd_detect,
-    cmd_diag_imei,
-    cmd_driver_install,
-    cmd_driver_status,
-    cmd_dump_partition,
-    cmd_erase_partition,
-    cmd_exploit_list,
-    cmd_exploit_run,
-    cmd_flash_ofp,
-    cmd_flash_partition,
-    cmd_flash_scatter,
+    cmd_driver,
+    cmd_exploit,
+    cmd_flash,
     cmd_info,
-    cmd_readback_all,
-    cmd_unlock_bl,
+    cmd_socs,
+    cmd_unlock,
 )
 from kaeru_mtk.utils.errors import KaeruError
 from kaeru_mtk.utils.logging import install_console_logging
 
 
-def _add_session_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--da", help="path to MTK_AllInOne_DA.bin (or oplus DA blob)")
-    p.add_argument("--auth-dir", help="directory containing per-platform auth_sv5.auth (e.g. MTKResource/)")
-    p.add_argument(
-        "--skip-auth",
-        action="store_true",
-        help="do not load auth_sv5 even if device target_config requests SLA",
+def _add_global_runner_args(p: argparse.ArgumentParser) -> None:
+    g = p.add_argument_group("mtkclient runner")
+    g.add_argument("--mtk-bin", help="override mtkclient executable (env: KAERU_MTK_BIN)")
+    g.add_argument("--loader", help="path to MediaTek DA blob (forwarded to mtkclient --loader)")
+    g.add_argument("--preloader", help="path to preloader blob (forwarded to mtkclient --preloader)")
+    g.add_argument(
+        "--auth-file",
+        help="explicit path to auth_sv5.auth (overrides hwcode-based auto-resolution)",
     )
-    p.add_argument(
-        "--skip-sla",
+    g.add_argument(
+        "--no-auto-auth",
         action="store_true",
-        help="load auth but skip SLA challenge-response (use after a BROM exploit)",
+        help="never auto-pick a bundled auth file",
     )
 
 
 def _add_dry_run(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--dry-run", action="store_true", help="parse/probe only, no device writes")
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the mtkclient invocation without executing it",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="kaeru-mtk",
         description=(
-            "Open-source MediaTek BROM/DA flasher for OnePlus / OPPO devices.\n"
+            "Windows-first OnePlus / OPPO MediaTek flasher.\n"
+            "Wraps mtkclient (https://github.com/bkerler/mtkclient) and adds:\n"
+            "  - 15 bundled auth_sv5.auth files for MT6763 / 6765 / 6769 / 6771 /\n"
+            "    6779 / 6833 / 6853 / 6873 / 6877 / 6885 / 6889 / 6893\n"
+            "  - automatic auth selection based on detected hwcode\n"
+            "  - the four RSA-2048 SLA public keys extracted from OPlus's\n"
+            "    SLA_Challenge.dll, used to label which embedded key your\n"
+            "    device's auth modulus matches against\n"
+            "  - a Zadig / WinUSB driver helper for Windows hosts\n"
             "Apache-2.0. Educational and security-research use; you can brick your phone."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Common workflows:\n"
-            "  kaeru-mtk driver install        # Windows: install WinUSB via Zadig\n"
-            "  kaeru-mtk detect                # see if device is in BROM mode\n"
-            "  kaeru-mtk info --da DA.bin --auth-dir MTKResource\n"
-            "  kaeru-mtk dump --partition oplusreserve1 --out reserve1.bin --da DA.bin --auth-dir MTKResource\n"
-            "  kaeru-mtk readback-all --out-dir backup/ --da DA.bin --auth-dir MTKResource --exclude-sensitive\n"
-            "  kaeru-mtk unlock-bl --confirm-unlock --da DA.bin --auth-dir MTKResource\n"
+            "Workflow:\n"
+            "  kaeru-mtk driver install         # Windows: bind WinUSB via Zadig\n"
+            "  kaeru-mtk detect                 # list MTK USB endpoints\n"
+            "  kaeru-mtk info                   # hwcode + matched bundled auth\n"
+            "  kaeru-mtk auth list              # list bundled auth files\n"
+            "  kaeru-mtk socs                   # list known SoCs\n"
+            "  kaeru-mtk exploit list           # exploits available in mtkclient\n"
+            "  kaeru-mtk flash read --partition boot --out boot.bin\n"
+            "  kaeru-mtk flash readall --out-dir backup/\n"
+            "  kaeru-mtk flash write --partition recovery --image recovery.img\n"
+            "  kaeru-mtk flash erase --partition userdata --confirm-brick-risk\n"
+            "  kaeru-mtk unlock-bl --confirm-unlock\n"
         ),
     )
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -68,118 +80,132 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="command", required=True, metavar="<command>")
 
-    p_det = sub.add_parser("detect", help="enumerate connected MTK BROM/Preloader devices")
-    p_det.set_defaults(func=cmd_detect)
+    pd = sub.add_parser("driver", help="Windows WinUSB / Zadig driver helper")
+    pd_sub = pd.add_subparsers(dest="action", required=True, metavar="<action>")
+    pd_sub.add_parser("status", help="show driver state for known MTK USB IDs")
+    pdi = pd_sub.add_parser("install", help="download Zadig and walk through WinUSB binding")
+    pdi.add_argument("--no-launch", action="store_true", help="download only, do not launch Zadig")
 
-    p_inf = sub.add_parser("info", help="probe target: hwcode, sw version, target_config, ME-ID")
-    _add_session_args(p_inf)
-    p_inf.set_defaults(func=cmd_info)
+    sub.add_parser("detect", help="list MTK USB endpoints currently visible")
 
-    p_dump = sub.add_parser("dump", help="read a single partition to file")
-    _add_session_args(p_dump)
-    p_dump.add_argument("--partition", required=True, help="partition name (e.g. boot, vbmeta, oplusreserve1)")
-    p_dump.add_argument("--out", help="output file (default: <partition>.bin)")
-    p_dump.add_argument("--offset", type=lambda s: int(s, 0), default=0, help="byte offset within partition")
-    p_dump.add_argument("--length", type=lambda s: int(s, 0), default=0x100000, help="bytes to read")
-    p_dump.set_defaults(func=cmd_dump_partition)
+    pi = sub.add_parser("info", help="probe device, print hwcode + matched bundled auth")
+    _add_global_runner_args(pi)
+    _add_dry_run(pi)
 
-    p_rb = sub.add_parser("readback-all", help="dump common partitions to a directory")
-    _add_session_args(p_rb)
-    p_rb.add_argument("--out-dir", default="readback", help="output directory")
-    p_rb.add_argument("--max-size", type=lambda s: int(s, 0), default=0x800000, help="cap per-partition")
-    p_rb.add_argument("--exclude-sensitive", action="store_true", help="skip proinfo/protect/frp")
-    p_rb.set_defaults(func=cmd_readback_all)
+    pa = sub.add_parser("auth", help="inspect bundled auth files")
+    pa_sub = pa.add_subparsers(dest="action", required=True, metavar="<action>")
+    pa_sub.add_parser("list", help="list every bundled auth_sv5.auth and matched SLA key")
+    par = pa_sub.add_parser("resolve", help="resolve auth for a given hwcode")
+    par.add_argument("hw_code", help="hwcode, decimal or 0x-prefixed hex")
 
-    p_flash = sub.add_parser("flash", help="flash a partition or a full scatter / OFP")
-    flash_sub = p_flash.add_subparsers(dest="flash_subcmd", required=True)
+    sub.add_parser("socs", help="list known SoCs (hwcode, family, arch, bundled auth?)")
 
-    p_fp = flash_sub.add_parser("partition", help="flash a single partition image")
-    _add_session_args(p_fp)
-    _add_dry_run(p_fp)
-    p_fp.add_argument("--partition", required=True)
-    p_fp.add_argument("--image", required=True)
-    p_fp.add_argument("--i-know-what-im-doing", dest="confirm", action="store_true")
-    p_fp.set_defaults(func=cmd_flash_partition)
+    pe = sub.add_parser("exploit", help="list / run mtkclient exploits")
+    pe_sub = pe.add_subparsers(dest="action", required=True, metavar="<action>")
+    pe_sub.add_parser("list", help="show kamakiri/kamakiri2/carbonara/hashimoto/heapbait")
+    per = pe_sub.add_parser("run", help="hand off to mtkclient with --ptype")
+    per.add_argument(
+        "--ptype",
+        choices=("kamakiri", "kamakiri2", "carbonara"),
+        help="exploit type (mtkclient picks one automatically if omitted)",
+    )
+    _add_global_runner_args(per)
+    _add_dry_run(per)
 
-    p_fs = flash_sub.add_parser("scatter", help="parse and (eventually) flash from a scatter file")
-    _add_session_args(p_fs)
-    _add_dry_run(p_fs)
-    p_fs.add_argument("--scatter", required=True)
-    p_fs.add_argument("--confirm-brick-risk", action="store_true")
-    p_fs.set_defaults(func=cmd_flash_scatter)
+    pf = sub.add_parser("flash", help="partition I/O via mtkclient")
+    pf_sub = pf.add_subparsers(dest="action", required=True, metavar="<action>")
 
-    p_fo = flash_sub.add_parser("ofp", help="flash from a OnePlus OFP package")
-    _add_session_args(p_fo)
-    _add_dry_run(p_fo)
-    p_fo.add_argument("--ofp", required=True)
-    p_fo.add_argument("--extract-only", action="store_true")
-    p_fo.set_defaults(func=cmd_flash_ofp)
+    pfr = pf_sub.add_parser("read", help="read one partition to a file (mtk r)")
+    pfr.add_argument("--partition", required=True)
+    pfr.add_argument("--out", required=True)
+    _add_global_runner_args(pfr)
+    _add_dry_run(pfr)
 
-    p_unlock = sub.add_parser("unlock-bl", help="OnePlus / OPPO bootloader unlock (BROM path)")
-    _add_session_args(p_unlock)
-    _add_dry_run(p_unlock)
-    p_unlock.add_argument("--scatter", help="optional scatter file for partition lookup")
-    p_unlock.add_argument("--confirm-unlock", action="store_true", help="REQUIRED. Wipes userdata.")
-    p_unlock.set_defaults(func=cmd_unlock_bl)
+    pfra = pf_sub.add_parser("readall", help="read every partition to a directory (mtk rl)")
+    pfra.add_argument("--out-dir", required=True)
+    pfra.add_argument(
+        "--exclude-sensitive",
+        action="store_true",
+        help="skip nvram, nvdata, nvcfg, persist, oplusreserve1/2/3, prodnv, sgpt",
+    )
+    _add_global_runner_args(pfra)
+    _add_dry_run(pfra)
 
-    p_erase = sub.add_parser("erase", help="erase a partition (DA-side format)")
-    _add_session_args(p_erase)
-    _add_dry_run(p_erase)
-    p_erase.add_argument("--partition", required=True)
-    p_erase.add_argument("--allow-dangerous", action="store_true", help="allow erasing pl/lk/preloader")
-    p_erase.set_defaults(func=cmd_erase_partition)
+    pfw = pf_sub.add_parser("write", help="write a partition from a file (mtk w)")
+    pfw.add_argument("--partition", required=True)
+    pfw.add_argument("--image", required=True)
+    pfw.add_argument(
+        "--confirm-brick-risk",
+        action="store_true",
+        help="required: writing the wrong partition can permanently brick the device",
+    )
+    _add_global_runner_args(pfw)
+    _add_dry_run(pfw)
 
-    p_diag = sub.add_parser("diag", help="diagnostic / read IMEI from proinfo")
-    diag_sub = p_diag.add_subparsers(dest="diag_subcmd", required=True)
-    p_imei = diag_sub.add_parser("imei", help="read IMEI from proinfo partition")
-    _add_session_args(p_imei)
-    p_imei.set_defaults(func=cmd_diag_imei)
+    pfe = pf_sub.add_parser("erase", help="erase a partition (mtk e)")
+    pfe.add_argument("--partition", required=True)
+    pfe.add_argument(
+        "--confirm-brick-risk",
+        action="store_true",
+        help="required: erasing the wrong partition can permanently brick the device",
+    )
+    _add_global_runner_args(pfe)
+    _add_dry_run(pfe)
 
-    p_xpl = sub.add_parser("exploit", help="BROM exploits (kamakiri / kamakiri2 / hashimoto / carbonara / iguana)")
-    xpl_sub = p_xpl.add_subparsers(dest="exploit_subcmd", required=True)
-
-    p_xpl_list = xpl_sub.add_parser("list", help="list known exploits and per-SoC recipe")
-    p_xpl_list.set_defaults(func=cmd_exploit_list)
-
-    p_xpl_run = xpl_sub.add_parser("run", help="run an exploit against a connected BROM device")
-    p_xpl_run.add_argument("--exploit", choices=["kamakiri", "kamakiri2", "hashimoto", "carbonara", "iguana"], help="force exploit (default: auto by SoC)")
-    p_xpl_run.add_argument("--soc", help="override SoC name (e.g. MT6877); default: from hwcode")
-    p_xpl_run.add_argument("--payload-addr", type=lambda s: int(s, 0), default=None, help="override payload base address")
-    p_xpl_run.add_argument("--var-addr", type=lambda s: int(s, 0), default=None, help="override var address")
-    _add_dry_run(p_xpl_run)
-    p_xpl_run.set_defaults(func=cmd_exploit_run)
-
-    p_drv = sub.add_parser("driver", help="WinUSB driver helpers (Windows)")
-    drv_sub = p_drv.add_subparsers(dest="driver_subcmd", required=True)
-    p_drv_status = drv_sub.add_parser("status", help="show driver bound to MTK USB endpoints")
-    p_drv_status.set_defaults(func=cmd_driver_status)
-    p_drv_install = drv_sub.add_parser("install", help="download Zadig and guide WinUSB install")
-    p_drv_install.add_argument("--no-launch", action="store_true", help="download only; don't open Zadig")
-    p_drv_install.set_defaults(func=cmd_driver_install)
+    pu = sub.add_parser("unlock-bl", help="OPPO/OnePlus unlock (writes oplusreserve1)")
+    pu.add_argument(
+        "--confirm-unlock",
+        action="store_true",
+        help="required: this voids the warranty and wipes user data",
+    )
+    pu.add_argument(
+        "--allow-dangerous",
+        action="store_true",
+        help="required: needed in addition to --confirm-unlock",
+    )
+    _add_global_runner_args(pu)
+    _add_dry_run(pu)
 
     return p
 
 
-def _setup_logging(args: argparse.Namespace) -> None:
-    level = logging.WARNING
-    if args.verbose >= 2:
-        level = logging.DEBUG
-    elif args.verbose == 1:
-        level = logging.INFO
-    install_console_logging(level=level, use_rich=not args.no_rich)
+_DISPATCH = {
+    ("driver", "status"): cmd_driver.status,
+    ("driver", "install"): cmd_driver.install,
+    ("detect", None): cmd_detect.detect,
+    ("info", None): cmd_info.info,
+    ("auth", "list"): cmd_auth.list_bundles,
+    ("auth", "resolve"): cmd_auth.resolve,
+    ("socs", None): cmd_socs.run,
+    ("exploit", "list"): cmd_exploit.list_exploits,
+    ("exploit", "run"): cmd_exploit.run,
+    ("flash", "read"): cmd_flash.read,
+    ("flash", "readall"): cmd_flash.readall,
+    ("flash", "write"): cmd_flash.write,
+    ("flash", "erase"): cmd_flash.erase,
+    ("unlock-bl", None): cmd_unlock.unlock_bl,
+}
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    _setup_logging(args)
+
+    level = logging.DEBUG if args.verbose >= 1 else logging.INFO
+    install_console_logging(level=level, use_rich=not args.no_rich)
+
+    action = getattr(args, "action", None)
+    handler = _DISPATCH.get((args.command, action))
+    if handler is None:
+        parser.error(f"unknown command/action: {args.command} {action}")
+
     try:
-        return int(args.func(args) or 0)
+        return int(handler(args) or 0)
     except KaeruError as e:
-        logging.getLogger("kaeru_mtk").error("%s", e)
+        print(f"error: {e}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
-        logging.getLogger("kaeru_mtk").warning("interrupted")
+        print("interrupted", file=sys.stderr)
         return 130
 
 

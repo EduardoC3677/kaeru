@@ -2,53 +2,77 @@ from __future__ import annotations
 
 from kaeru_mtk.data.soc_db import (
     all_socs,
-    get_primary_soc_by_hwcode,
-    get_soc_by_name,
-    get_socs_by_hwcode,
+    auth_socs,
+    find_by_hwcode,
+    find_by_name,
 )
 
 
-def test_at_least_20_socs_in_db():
-    assert len(all_socs()) >= 20
+def test_db_contains_every_auth_bundled_soc():
+    names = {s.name for s in auth_socs()}
+    assert {
+        "MT6763", "MT6765", "MT6769", "MT6771", "MT6779",
+        "MT6833", "MT6853", "MT6873", "MT6877",
+        "MT6885", "MT6889", "MT6893",
+    }.issubset(names)
 
 
-def test_lookup_by_name_case_insensitive():
-    a = get_soc_by_name("MT6877")
-    b = get_soc_by_name("mt6877")
+def test_find_by_name_case_insensitive():
+    a = find_by_name("MT6877")
+    b = find_by_name("mt6877")
     assert a is not None
     assert a is b
-    assert get_soc_by_name("MT9999") is None
+    assert find_by_name("MT9999") is None
 
 
-def test_lookup_by_hwcode():
-    primary = get_primary_soc_by_hwcode(0x1186)
-    assert primary is not None
-    assert primary.name == "MT6877"
-
-    unknown = get_primary_soc_by_hwcode(0xCAFE)
-    assert unknown is None
+def test_find_by_name_resolves_aliases():
+    via_alias = find_by_name("MT8768t")
+    assert via_alias is not None
+    assert via_alias.name == "MT6765"
 
 
-def test_aarch64_socs_have_da_v6():
-    for s in all_socs():
-        if s.arch == "aarch64":
-            assert s.da_version == 6, f"{s.name} aarch64 must use DA v6"
-
-
-def test_all_socs_have_at_least_one_exploit():
-    for s in all_socs():
-        assert len(s.exploits) >= 1, f"{s.name} has no exploit recipe"
-
-
-def test_dimensity_9300_is_aarch64_with_iguana():
-    s = get_soc_by_name("MT6897")
-    assert s is not None
-    assert s.arch == "aarch64"
-    assert "iguana" in s.exploits
-    assert s.sla_required is True
+def test_hwcodes_match_mtkclient_for_known_socs():
+    expected_hwcodes = {
+        "MT6763": 0x690,
+        "MT6765": 0x766,
+        "MT6769": 0x707,
+        "MT6771": 0x788,
+        "MT6779": 0x725,
+        "MT6833": 0x989,
+        "MT6853": 0x996,
+        "MT6873": 0x886,
+        "MT6877": 0x959,
+        "MT6885": 0x816,
+        "MT6889": 0x816,
+        "MT6893": 0x950,
+        "MT6897": 0x1203,
+        "MT6989": 0x1236,
+    }
+    for name, hw in expected_hwcodes.items():
+        s = find_by_name(name)
+        assert s is not None, f"missing {name}"
+        assert s.hw_code == hw, f"{name} hwcode mismatch"
 
 
 def test_hwcode_collision_returns_all_matches():
-    matches = get_socs_by_hwcode(0x0707)
+    matches = find_by_hwcode(0x816)
     names = {m.name for m in matches}
-    assert "MT6763" in names
+    assert {"MT6885", "MT6889"}.issubset(names)
+
+
+def test_aarch64_arch_for_dimensity_socs():
+    for name in ("MT6833", "MT6853", "MT6873", "MT6877", "MT6885", "MT6893", "MT6897"):
+        s = find_by_name(name)
+        assert s is not None
+        assert s.arch == "aarch64"
+
+
+def test_armv7_for_helio_socs():
+    for name in ("MT6763", "MT6765", "MT6769", "MT6771", "MT6779"):
+        s = find_by_name(name)
+        assert s is not None
+        assert s.arch == "armv7"
+
+
+def test_all_socs_listed():
+    assert len(all_socs()) >= 20

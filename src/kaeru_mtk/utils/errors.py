@@ -5,23 +5,11 @@ class KaeruError(Exception):
     pass
 
 
-class TransportError(KaeruError):
+class DriverError(KaeruError):
     pass
 
 
-class DriverError(TransportError):
-    pass
-
-
-class DeviceNotFoundError(TransportError):
-    pass
-
-
-class TimeoutError(TransportError):
-    pass
-
-
-class ProtocolError(KaeruError):
+class DeviceNotFoundError(KaeruError):
     pass
 
 
@@ -30,8 +18,4 @@ class AuthError(KaeruError):
 
 
 class UnsupportedSocError(KaeruError):
-    pass
-
-
-class ExploitError(KaeruError):
     pass

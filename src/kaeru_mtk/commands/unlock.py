@@ -1,35 +1,56 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+import argparse
 
-from kaeru_mtk.commands._session import open_session_from_args
-from kaeru_mtk.formats.scatter import parse_scatter
-from kaeru_mtk.oneplus.unlock import perform_oneplus_unlock
+from kaeru_mtk.commands._runner import auto_resolve_auth_bundle, make_runner, run_or_dry_run
 from kaeru_mtk.utils.errors import KaeruError
-from kaeru_mtk.utils.logging import get_logger
 
-log = get_logger(__name__)
+_UNLOCK_PARTITION = "oplusreserve1"
+_UNLOCK_OFFSET_HINT = (
+    "OPLUS unlock state lives inside the oplusreserve1 partition (the exact\n"
+    "    `unlock_allowed_flag_offset` is set per-device in the OPlusFlashTool\n"
+    "    plugin and the only public reference is the leaked OplusFlashTool DLLs.\n"
+    "    kaeru-mtk does NOT bundle an offset list."
+)
 
 
-def cmd_unlock_bl(args: Any) -> int:
-    scatter = parse_scatter(Path(args.scatter)) if args.scatter else None
-
-    if not args.confirm_unlock and not args.dry_run:
+def unlock_bl(args: argparse.Namespace) -> int:
+    if not args.dry_run and not (args.confirm_unlock and args.allow_dangerous):
         raise KaeruError(
-            "Bootloader unlock will WIPE userdata and tamper-flag the device. "
-            "Pass --confirm-unlock to proceed, or --dry-run to inspect."
+            "BL unlock requires both --confirm-unlock and --allow-dangerous.\n"
+            "    This wipes user data, voids the warranty, and on most OPPO/OnePlus\n"
+            "    devices is permanent (the EFUSE state cannot be reverted).\n"
+            f"\n    {_UNLOCK_OFFSET_HINT}"
         )
 
-    with open_session_from_args(args) as ctx:
-        if ctx.da_v6 is None and ctx.da_v5 is None and not args.dry_run:
-            raise KaeruError(
-                "Unlock requires a loaded DA. Pass --da MTK_AllInOne_DA.bin and --auth-dir."
-            )
-        result = perform_oneplus_unlock(
-            da=ctx.da_v6 or ctx.da_v5,
-            scatter=scatter,
-            dry_run=args.dry_run,
-        )
-    log.info("Unlock result: ok=%s method=%s detail=%s", result.ok, result.method, result.detail)
-    return 0 if result.ok else 1
+    runner = make_runner(args)
+    if not args.dry_run:
+        bundle = auto_resolve_auth_bundle(runner)
+        if bundle is not None and not args.no_auto_auth:
+            runner.auth = bundle.path
+
+    if args.dry_run:
+        from kaeru_mtk.commands._runner import print_command
+        print(f"# would read+modify+write {_UNLOCK_PARTITION} via mtkclient r/w")
+        print_command(runner, "r", [_UNLOCK_PARTITION, "oplusreserve1.bin"])
+        print_command(runner, "w", [_UNLOCK_PARTITION, "oplusreserve1.bin"])
+        return 0
+
+    raise KaeruError(
+        "non-dry-run BL unlock is intentionally NOT implemented in this release.\n"
+        "    The unlock procedure is device-specific (per-product offsets and\n"
+        "    structures) and shipping a one-size-fits-all flipper here would\n"
+        "    brick devices. Use:\n"
+        f"        kaeru-mtk flash read --partition {_UNLOCK_PARTITION} --out reserve1.bin\n"
+        "    edit the unlock flag at the offset documented for *your* device,\n"
+        "    then:\n"
+        f"        kaeru-mtk flash write --partition {_UNLOCK_PARTITION} --image reserve1.bin --confirm-brick-risk"
+    )
+
+
+def run_ext(args: argparse.Namespace) -> int:
+    runner = make_runner(args)
+    return run_or_dry_run(runner, "reset", [], dry_run=args.dry_run)
+
+
+__all__ = ["unlock_bl"]

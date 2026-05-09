@@ -1,74 +1,70 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+import argparse
 
-from kaeru_mtk.commands._session import open_session_from_args
-from kaeru_mtk.formats.ofp import parse_ofp
-from kaeru_mtk.formats.scatter import filter_flashable, parse_scatter
+from kaeru_mtk.commands._runner import auto_resolve_auth_bundle, make_runner, run_or_dry_run
 from kaeru_mtk.utils.errors import KaeruError
-from kaeru_mtk.utils.logging import get_logger
 
-log = get_logger(__name__)
-
-
-def cmd_flash_partition(args: Any) -> int:
-    if not args.partition or not args.image:
-        print("usage: kaeru-mtk flash partition --partition NAME --image FILE")
-        return 2
-    image = Path(args.image)
-    if not image.is_file():
-        raise KaeruError(f"image not found: {image}")
-    payload = image.read_bytes()
-    log.info("Will flash %s (%d B) -> %s", image, len(payload), args.partition)
-
-    if args.dry_run:
-        log.info("[dry-run] no write performed")
-        return 0
-
-    with open_session_from_args(args) as ctx:
-        if ctx.da_v6 is None:
-            raise KaeruError("flash requires DAv6 (DAv5 path needs scatter id mapping).")
-        raise KaeruError("DAv6 WRITE_DATA path is intentionally gated. Pass --i-know-what-im-doing")
-    return 0
+_SENSITIVE_PARTITIONS = (
+    "nvram",
+    "nvdata",
+    "nvcfg",
+    "persist",
+    "oplusreserve1",
+    "oplusreserve2",
+    "oplusreserve3",
+    "prodnv",
+    "sgpt",
+    "proinfo",
+    "protect1",
+    "protect2",
+)
 
 
-def cmd_flash_scatter(args: Any) -> int:
-    scatter_file = Path(args.scatter)
-    if not scatter_file.is_file():
-        raise KaeruError(f"scatter not found: {scatter_file}")
-    sf = parse_scatter(scatter_file)
-    flashable = filter_flashable(sf.partitions)
-    log.info("scatter: project=%s storage=%s partitions=%d (flashable=%d)",
-             sf.project, sf.storage, len(sf.partitions), len(flashable))
-    for p in flashable:
-        log.info(
-            "  -> %-20s file=%-30s size=%s",
-            p.name,
-            p.file_name,
-            f"0x{p.partition_size:x}" if p.partition_size else "?",
-        )
-    if args.dry_run:
-        log.info("[dry-run] no flash performed")
-        return 0
-    raise KaeruError(
-        "Full scatter flash is gated behind --confirm-brick-risk. Use partition-level flash for now."
+def _prep(args: argparse.Namespace):
+    runner = make_runner(args)
+    if not args.dry_run:
+        bundle = auto_resolve_auth_bundle(runner)
+        if bundle is not None and not args.no_auto_auth:
+            runner.auth = bundle.path
+    return runner
+
+
+def read(args: argparse.Namespace) -> int:
+    runner = _prep(args)
+    return run_or_dry_run(
+        runner, "r", [args.partition, args.out], dry_run=args.dry_run
     )
 
 
-def cmd_flash_ofp(args: Any) -> int:
-    ofp_file = Path(args.ofp)
-    if not ofp_file.is_file():
-        raise KaeruError(f"OFP not found: {ofp_file}")
-    pkg = parse_ofp(ofp_file)
-    log.info("OFP family=%s magic=%r entries=%d", pkg.header.family, pkg.header.magic, len(pkg.entries))
-    if pkg.header.family in ("unknown", "qualcomm"):
+def readall(args: argparse.Namespace) -> int:
+    runner = _prep(args)
+    forwarded = [args.out_dir]
+    if args.exclude_sensitive:
+        forwarded += ["--skip", ",".join(_SENSITIVE_PARTITIONS)]
+    return run_or_dry_run(runner, "rl", forwarded, dry_run=args.dry_run)
+
+
+def write(args: argparse.Namespace) -> int:
+    if not args.confirm_brick_risk and not args.dry_run:
         raise KaeruError(
-            f"OFP family={pkg.header.family} is not supported by the MTK path. "
-            "Run `kaeru-mtk ofp inspect` to see structure."
+            "writing a partition can permanently brick the device. Re-run with "
+            "--confirm-brick-risk (or --dry-run to preview the mtkclient command)."
         )
-    if not pkg.entries:
-        log.warning("OFP parsed but no entries discovered. Decryption may be required.")
-    if args.dry_run:
-        return 0
-    raise KaeruError("OFP flashing path requires decryption keys. Use --extract-only for now.")
+    runner = _prep(args)
+    return run_or_dry_run(
+        runner, "w", [args.partition, args.image], dry_run=args.dry_run
+    )
+
+
+def erase(args: argparse.Namespace) -> int:
+    if not args.confirm_brick_risk and not args.dry_run:
+        raise KaeruError(
+            "erasing a partition can permanently brick the device. Re-run with "
+            "--confirm-brick-risk (or --dry-run to preview the mtkclient command)."
+        )
+    runner = _prep(args)
+    return run_or_dry_run(runner, "e", [args.partition], dry_run=args.dry_run)
+
+
+__all__ = ["erase", "read", "readall", "write"]

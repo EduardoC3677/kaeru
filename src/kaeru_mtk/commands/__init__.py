@@ -1,26 +1,35 @@
-from kaeru_mtk.commands.detect import cmd_detect
-from kaeru_mtk.commands.diag import cmd_diag_imei
-from kaeru_mtk.commands.driver_cmd import cmd_driver_install, cmd_driver_status
-from kaeru_mtk.commands.dump import cmd_dump_partition, cmd_readback_all
-from kaeru_mtk.commands.erase import cmd_erase_partition
-from kaeru_mtk.commands.exploit import cmd_exploit_list, cmd_exploit_run
-from kaeru_mtk.commands.flash import cmd_flash_ofp, cmd_flash_partition, cmd_flash_scatter
-from kaeru_mtk.commands.info import cmd_info
-from kaeru_mtk.commands.unlock import cmd_unlock_bl
+from kaeru_mtk.commands import (
+    auth as cmd_auth,
+)
+from kaeru_mtk.commands import (
+    detect as cmd_detect,
+)
+from kaeru_mtk.commands import (
+    driver as cmd_driver,
+)
+from kaeru_mtk.commands import (
+    exploit as cmd_exploit,
+)
+from kaeru_mtk.commands import (
+    flash as cmd_flash,
+)
+from kaeru_mtk.commands import (
+    info as cmd_info,
+)
+from kaeru_mtk.commands import (
+    socs as cmd_socs,
+)
+from kaeru_mtk.commands import (
+    unlock as cmd_unlock,
+)
 
 __all__ = [
+    "cmd_auth",
     "cmd_detect",
-    "cmd_diag_imei",
-    "cmd_driver_install",
-    "cmd_driver_status",
-    "cmd_dump_partition",
-    "cmd_erase_partition",
-    "cmd_exploit_list",
-    "cmd_exploit_run",
-    "cmd_flash_ofp",
-    "cmd_flash_partition",
-    "cmd_flash_scatter",
+    "cmd_driver",
+    "cmd_exploit",
+    "cmd_flash",
     "cmd_info",
-    "cmd_readback_all",
-    "cmd_unlock_bl",
+    "cmd_socs",
+    "cmd_unlock",
 ]

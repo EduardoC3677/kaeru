@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.request import urlopen
 
-from kaeru_mtk.transport.identifiers import all_known_ids
+from kaeru_mtk.data.usb_ids import all_known_ids
 from kaeru_mtk.utils.errors import DriverError
 from kaeru_mtk.utils.logging import get_logger
 
