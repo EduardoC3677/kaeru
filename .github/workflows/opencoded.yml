@@ -21,20 +21,39 @@ on:
         type: string
 
 concurrency:
-  group: opencoded-${{ github.workflow }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  group: opencoded-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   opencode:
+    # Skip when actor / author is a bot — the action asserts write permission on the
+    # actor, and bots have `permission: none`, causing the run to fail with
+    # "User opencode-agent[bot] does not have write permissions".
     if: >-
       ${{
-        github.event_name == 'workflow_dispatch' ||
-        github.event_name == 'issues' ||
-        github.event_name == 'pull_request' ||
+        github.actor != 'opencode-agent[bot]' &&
+        github.event.sender.type != 'Bot' &&
         (
-          (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
-          (contains(github.event.comment.body, '/ocd') || contains(github.event.comment.body, '/opencoded')) &&
-          github.event.comment.user.type != 'Bot'
+          github.event_name == 'workflow_dispatch' ||
+          (
+            (github.event_name == 'issues' || github.event_name == 'pull_request') &&
+            github.event.issue.user.type != 'Bot' &&
+            github.event.pull_request.user.type != 'Bot' &&
+            (
+              contains(github.event.issue.body, '/ocd') ||
+              contains(github.event.issue.body, '/opencoded') ||
+              contains(github.event.pull_request.body, '/ocd') ||
+              contains(github.event.pull_request.body, '/opencoded')
+            )
+          ) ||
+          (
+            (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
+            github.event.comment.user.type != 'Bot' &&
+            (
+              contains(github.event.comment.body, '/ocd') ||
+              contains(github.event.comment.body, '/opencoded')
+            )
+          )
         )
       }}
 
@@ -59,7 +78,7 @@ jobs:
       AZURE_RESOURCE_NAME: ${{ secrets.AZURE_FOUNDRY_RESOURCE_NAME || secrets.AZURE_RESOURCE_NAME }}
       DEEPSEEK_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY || secrets.AZURE_API_KEY }}
       RAW_MODEL: ${{ github.event.inputs.model || vars.OPENCODE_MODEL || 'deepseek/deepseek-v4-flash' }}
-      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout repository
@@ -214,6 +233,8 @@ jobs:
         uses: anomalyco/opencode/github@latest
         continue-on-error: true
         with:
+          use_github_token: true
+          share: true
           model: ${{ steps.normalize_model.outputs.model }}
 
       - name: Run OpenCode for issues/PR/workflow_dispatch
@@ -225,6 +246,8 @@ jobs:
         uses: anomalyco/opencode/github@latest
         continue-on-error: true
         with:
+          use_github_token: true
+          share: true
           model: ${{ steps.normalize_model.outputs.model }}
           prompt: >-
             ${{
